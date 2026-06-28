@@ -111,7 +111,7 @@ class MemoryUpdate(BaseModel):
     strategy_notes: list[str]
 
 def build_reflection_prompt(memory: MemoryView, closed: list[ClosedTrade],
-                            positions: list[PositionView], instructions: str) -> tuple[str, str]:
+                            held_symbols: list[str], instructions: str) -> tuple[str, str]:
     ...   # returns (system, user); instructs the model to REWRITE the 3 sections within the caps
 
 def parse_reflection(raw: str) -> MemoryUpdate:
@@ -142,7 +142,8 @@ ctx = build_context(..., memory=memory)
 ```python
 if closed_trades:
     try:
-        sys, usr = build_reflection_prompt(memory, closed_trades, ctx.positions, agent.instructions)
+        held_symbols = [p.symbol for p in agent.positions]
+        sys, usr = build_reflection_prompt(memory, closed_trades, held_symbols, agent.instructions)
         raw = adapter.complete_json(sys, usr)       # same adapter/model as the decision
         new_mem = enforce_caps(parse_reflection(raw))
         _persist_memory(session, agent.id, new_mem) # upsert the 3 rows
