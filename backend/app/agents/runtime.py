@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from app.core.config import settings
 from app.db.models import EquitySnapshot, Event, AgentMemory
 from app.trading.engine import execute_buy, execute_sell
@@ -90,7 +90,15 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         try:
             if action.type == "BUY" and action.symbol in universe_symbols:
                 amount = action.usd_amount or settings.decision_buy_default_usd
-                if amount < settings.min_trade_usd or amount > agent.cash_usd:
+                # The fee is charged on top of the notional, so the most the agent
+                # can actually spend is cash / (1 + fee_rate). Clamp the request down
+                # to that (rounded down to the cash scale) so an all-in BUY executes
+                # instead of erroring out in execute_buy when the fee tips it over cash.
+                affordable = (agent.cash_usd / (Decimal("1") + settings.fee_rate)
+                              ).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+                if amount > affordable:
+                    amount = affordable
+                if amount < settings.min_trade_usd:
                     skipped += 1; continue
                 _bid, ask = await market.get_book_ticker(action.symbol)
                 execute_buy(session, agent, action.symbol, amount, ask)

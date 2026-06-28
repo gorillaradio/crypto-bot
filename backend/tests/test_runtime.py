@@ -132,6 +132,28 @@ async def test_llm_path_executes_buy_with_guardrails(db_session):
     assert "testing" in ev.message
 
 
+async def test_llm_all_in_buy_clamps_for_fee_and_executes(db_session):
+    """An all-in BUY (usd_amount == cash) must succeed, not error out: the runtime
+    clamps the requested spend to cash/(1+fee_rate) so the fee fits on top, opening
+    a position. Without the clamp, execute_buy raises 'cash insufficiente'."""
+    agent = _llm_agent(db_session)                   # cash 100
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[
+        Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("100"), rationale="all-in"),
+    ], note="fomo")
+    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+                       brain_decide=lambda ctx, adapter: decision)
+    buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
+    assert len(buys) == 1                            # the all-in executed
+    pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
+    assert pos.quantity > 0
+    assert agent.cash_usd >= Decimal("0")            # never overspends past cash
+    assert agent.cash_usd < Decimal("1")             # spent (almost) all cash
+    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
+    assert "1 operazioni" in ev.message and "0 errori" in ev.message
+
+
 async def test_llm_data_gathering_error_writes_event_no_trade(db_session):
     """If get_universe_snapshot raises, run_decision must not raise, must write a decision
     event recording the error, and must create zero Trade rows."""
