@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import settings
@@ -7,13 +8,18 @@ from app.market.binance import BinanceClient
 from app.agents.runtime import run_heartbeat, run_decision
 
 _scheduler: AsyncIOScheduler | None = None
+logger = logging.getLogger(__name__)
 
 
 async def _heartbeat_tick():
     market = BinanceClient()
     with get_session() as session:
         for agent in session.query(Agent).filter_by(status="running").all():
-            await run_heartbeat(session, agent, market)
+            try:
+                await run_heartbeat(session, agent, market)
+            except Exception as exc:
+                logger.error("heartbeat tick failed for agent %s: %s", agent.id, exc)
+                session.rollback()
 
 
 async def _decision_tick():
@@ -22,8 +28,12 @@ async def _decision_tick():
     symbols = await market.get_top_symbols("USDT", n)
     with get_session() as session:
         for agent in session.query(Agent).filter_by(status="running").all():
-            buy_usd = settings.initial_capital_usd / Decimal("10")
-            await run_decision(session, agent, market, symbols, buy_usd)
+            try:
+                buy_usd = settings.initial_capital_usd / Decimal("10")
+                await run_decision(session, agent, market, symbols, buy_usd)
+            except Exception as exc:
+                logger.error("decision tick failed for agent %s: %s", agent.id, exc)
+                session.rollback()
 
 
 def start_scheduler() -> AsyncIOScheduler:

@@ -162,3 +162,26 @@ async def test_llm_path_sells_held_fraction(db_session):
                        brain_decide=lambda ctx, adapter: decision)
     pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
     assert pos.quantity == Decimal("0.5")
+
+
+async def test_llm_buy_then_sell_same_symbol_same_cycle(db_session):
+    """After a BUY, held must be rebuilt so a subsequent SELL of the same symbol
+    in the same cycle is not silently skipped (Fix 2)."""
+    agent = _llm_agent(db_session)
+    # agent starts with no position in NEWUSDT
+    snap = [CoinSnapshot("NEWUSDT", Decimal("50"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("50"), (Decimal("50"), Decimal("51")))
+    decision = Decision(actions=[
+        Action(type="BUY",  symbol="NEWUSDT", usd_amount=Decimal("50"), rationale="open"),
+        Action(type="SELL", symbol="NEWUSDT", fraction=Decimal("1"),    rationale="close"),
+    ], note="buy-then-sell")
+    await run_decision(db_session, agent, market, ["NEWUSDT"], Decimal("10"),
+                       brain_decide=lambda ctx, adapter: decision)
+    # Both the BUY and the SELL should have executed
+    buys  = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
+    sells = db_session.query(Trade).filter_by(agent_id=agent.id, side="SELL").all()
+    assert len(buys)  == 1, "BUY should have executed"
+    assert len(sells) == 1, "SELL should have executed (held must be rebuilt after BUY)"
+    # Position should be gone (fully closed)
+    pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="NEWUSDT").first()
+    assert pos is None or pos.quantity == Decimal("0")

@@ -83,7 +83,9 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide) -> No
                     skipped += 1; continue
                 _bid, ask = await market.get_book_ticker(action.symbol)
                 execute_buy(session, agent, action.symbol, amount, ask)
-                _append_rationale(session, agent, action.rationale); actions += 1
+                _append_rationale(session, agent, action.rationale)
+                session.refresh(agent)
+                held = {p.symbol: p for p in agent.positions}; actions += 1
             elif action.type == "SELL" and action.symbol in held:
                 frac = action.fraction if action.fraction is not None else Decimal("1")
                 qty = held[action.symbol].quantity * frac
