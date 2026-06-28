@@ -93,7 +93,16 @@ def test_create_llm_agent_persists_model_fields(db_session):
     assert resp.status_code == 201
     from app.db.models import Agent
     a = db_session.query(Agent).filter_by(name="Brainy").one()
+    db_session.expire(a)                # force re-read from DB, bypass identity map
     assert a.strategy == "llm" and a.model_provider == "deepseek" and a.model_name == "deepseek-chat"
+
+
+def test_invalid_model_provider_rejected_at_boundary(db_session):
+    client = _client(db_session)
+    resp = client.post("/api/agents", json={
+        "name": "Bad", "instructions": "x", "duration_days": 7,
+        "model_provider": "openai"})
+    assert resp.status_code == 422
 
 
 def test_get_events_returns_last_100_desc(db_session):

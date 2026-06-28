@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from pydantic import BaseModel
 
 
@@ -7,8 +8,8 @@ class AgentCreate(BaseModel):
     name: str
     instructions: str = ""
     duration_days: int = 7
-    strategy: str = "llm"
-    model_provider: str | None = None
+    strategy: Literal["sma", "llm"] = "llm"
+    model_provider: Literal["anthropic", "deepseek", "glm"] | None = None
     model_name: str | None = None
 
 
