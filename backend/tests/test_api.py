@@ -1,9 +1,16 @@
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes
 from app.db.models import Agent, EquitySnapshot
+
+
+@pytest.fixture(autouse=True)
+def _clear_overrides():
+    yield
+    app.dependency_overrides.clear()
 
 
 def _client(db_session):
