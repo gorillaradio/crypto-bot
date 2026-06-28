@@ -17,9 +17,9 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
     deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_base_url: str = "https://api.deepseek.com"
     glm_api_key: str = ""
-    glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"  # verify at Task 5
+    glm_base_url: str = "https://api.z.ai/api/paas/v4"
 
     @property
     def decision_buy_default_usd(self) -> Decimal:
