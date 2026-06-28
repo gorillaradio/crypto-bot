@@ -40,6 +40,18 @@ async def test_heartbeat_sells_on_stop_loss(db_session):
     assert len(trades) == 1
 
 
+async def test_heartbeat_equity_includes_sell_proceeds(db_session):
+    agent = _agent(db_session, "0")
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    # last price 80 → -20% → stop loss → sells at bid 80, fee 0.1% → cash = 79.92
+    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")), closes=[])
+    await run_heartbeat(db_session, agent, market)
+    snap = db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).one()
+    assert snap.equity_usd == Decimal("79.92")
+
+
 async def test_decision_buys_on_bullish_signal(db_session):
     agent = _agent(db_session, "100")
     closes = [Decimal("10")] * 19 + [Decimal("5"), Decimal("100")]

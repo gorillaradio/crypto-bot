@@ -5,14 +5,15 @@ from app.agents.strategy import decide_signal, guardrail_action
 
 
 async def run_heartbeat(session, agent, market) -> None:
-    equity = agent.cash_usd
+    positions_value = Decimal("0")
     for pos in list(agent.positions):
         last = await market.get_price(pos.symbol)
         if guardrail_action(pos.avg_price, last) == "SELL":
             bid, _ask = await market.get_book_ticker(pos.symbol)
             execute_sell(session, agent, pos.symbol, pos.quantity, bid)
         else:
-            equity += pos.quantity * last
+            positions_value += pos.quantity * last
+    equity = agent.cash_usd + positions_value
     session.add(EquitySnapshot(agent_id=agent.id, equity_usd=equity))
     session.commit()
 
