@@ -44,6 +44,18 @@ def test_sell_credits_cash_with_fee_and_reduces_position(db_session):
     assert remaining is None  # posizione azzerata → rimossa
 
 
+def test_partial_sell_keeps_position(db_session):
+    agent = _agent(db_session, "0")
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1.0"), avg_price=Decimal("100")))
+    db_session.commit()
+    # vende 0.4 al bid 200 → nozionale 80, fee = 80 * 0.001 = 0.08, cash += 79.92
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("0.4"), bid=Decimal("200"))
+    assert agent.cash_usd == Decimal("79.92")
+    pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
+    assert pos.quantity == Decimal("0.6")
+
+
 def test_sell_raises_if_not_enough_quantity(db_session):
     agent = _agent(db_session, "0")
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",

@@ -43,7 +43,7 @@ def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Dec
     agent.cash_usd = agent.cash_usd + (notional - fee)
 
     pos.quantity = pos.quantity - quantity
-    if pos.quantity == 0:
+    if pos.quantity <= 0:
         session.delete(pos)
 
     trade = Trade(agent_id=agent.id, symbol=symbol, side="SELL",
