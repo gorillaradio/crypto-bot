@@ -1,9 +1,10 @@
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.db.base import SessionLocal
-from app.db.models import Agent, EquitySnapshot, Event
-from app.api.schemas import AgentCreate, AgentOut, EquityPoint, EventOut
+from app.db.models import Agent, EquitySnapshot, Event, Position
+from app.api.schemas import AgentCreate, AgentOut, EquityPoint, EventOut, PositionOut
 
 router = APIRouter(prefix="/api")
 
@@ -14,6 +15,33 @@ def session_dep():
         yield session
     finally:
         session.close()
+
+
+def _latest_equity(session, agent: Agent) -> Decimal:
+    snap = (
+        session.query(EquitySnapshot)
+        .filter_by(agent_id=agent.id)
+        .order_by(EquitySnapshot.timestamp.desc())
+        .first()
+    )
+    return snap.equity_usd if snap else agent.cash_usd
+
+
+def _agent_out(session, agent: Agent) -> AgentOut:
+    equity = _latest_equity(session, agent)
+    initial = settings.initial_capital_usd
+    ret = ((equity - initial) / initial * Decimal("100")) if initial else Decimal("0")
+    return AgentOut(
+        id=agent.id,
+        name=agent.name,
+        instructions=agent.instructions,
+        status=agent.status,
+        cash_usd=agent.cash_usd,
+        equity=equity,
+        return_pct=ret,
+        duration_start=agent.duration_start,
+        duration_end=agent.duration_end,
+    )
 
 
 @router.post("/agents", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
@@ -30,12 +58,12 @@ def create_agent(payload: AgentCreate, session=Depends(session_dep)):
     session.add(agent)
     session.commit()
     session.refresh(agent)
-    return agent
+    return _agent_out(session, agent)
 
 
 @router.get("/agents", response_model=list[AgentOut])
 def list_agents(session=Depends(session_dep)):
-    return session.query(Agent).all()
+    return [_agent_out(session, a) for a in session.query(Agent).all()]
 
 
 @router.get("/agents/{agent_id}", response_model=AgentOut)
@@ -43,7 +71,21 @@ def get_agent(agent_id: int, session=Depends(session_dep)):
     agent = session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(404, "agent not found")
-    return agent
+    return _agent_out(session, agent)
+
+
+@router.get("/agents/{agent_id}/positions", response_model=list[PositionOut])
+def get_positions(agent_id: int, session=Depends(session_dep)):
+    rows = session.query(Position).filter_by(agent_id=agent_id).all()
+    return [
+        PositionOut(
+            symbol=p.symbol,
+            quantity=p.quantity,
+            avg_price=p.avg_price,
+            cost_basis=p.quantity * p.avg_price,
+        )
+        for p in rows
+    ]
 
 
 @router.get("/agents/{agent_id}/equity", response_model=list[EquityPoint])

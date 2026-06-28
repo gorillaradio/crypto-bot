@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
 class AgentCreate(BaseModel):
@@ -10,13 +10,22 @@ class AgentCreate(BaseModel):
 
 
 class AgentOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     name: str
     instructions: str
     status: str
     cash_usd: Decimal
+    equity: Decimal
+    return_pct: Decimal
+    duration_start: datetime
+    duration_end: datetime
+
+
+class PositionOut(BaseModel):
+    symbol: str
+    quantity: Decimal
+    avg_price: Decimal
+    cost_basis: Decimal
 
 
 class EquityPoint(BaseModel):

@@ -56,6 +56,35 @@ def test_get_agent_returns_404_for_missing(db_session):
     assert resp.status_code == 404
 
 
+def test_agent_detail_reports_equity_and_return(db_session):
+    agent = Agent(name="R", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    db_session.add(EquitySnapshot(agent_id=agent.id, equity_usd=Decimal("110")))
+    db_session.commit()
+    client = _client(db_session)
+    body = client.get(f"/api/agents/{agent.id}").json()
+    assert Decimal(body["equity"]) == Decimal("110")
+    assert Decimal(body["return_pct"]) == Decimal("10")  # (110-100)/100*100
+
+
+def test_get_positions_returns_holdings_with_cost_basis(db_session):
+    from app.db.models import Position
+    agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("0"))
+    db_session.add(agent); db_session.commit()
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("0.5"), avg_price=Decimal("100")))
+    db_session.commit()
+    client = _client(db_session)
+    rows = client.get(f"/api/agents/{agent.id}/positions").json()
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "BTCUSDT"
+    assert Decimal(rows[0]["cost_basis"]) == Decimal("50.0")
+
+
 def test_get_events_returns_last_100_desc(db_session):
     from app.db.models import Event
     agent = Agent(name="C", duration_start=datetime.now(timezone.utc),

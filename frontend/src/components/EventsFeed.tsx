@@ -1,48 +1,33 @@
 import type { AgentEvent } from "../api";
 
-function eventStyle(e: AgentEvent): { color: string; label: string } {
+function tagOf(e: AgentEvent): { cls: string; label: string } {
   if (e.kind === "trade") {
-    if (e.message.startsWith("BUY")) return { color: "#16a34a", label: "BUY" };
-    if (e.message.startsWith("SELL")) return { color: "#dc2626", label: "SELL" };
-    return { color: "#0ea5e9", label: "TRADE" };
+    if (e.message.startsWith("BUY")) return { cls: "buy", label: "BUY" };
+    if (e.message.startsWith("SELL")) return { cls: "sell", label: "SELL" };
+    return { cls: "dec", label: "TRADE" };
   }
-  if (e.kind === "decision") return { color: "#9ca3af", label: "DECISION" };
-  return { color: "#9ca3af", label: e.kind.toUpperCase() };
+  if (e.kind === "decision") return { cls: "dec", label: "CICLO" };
+  return { cls: "dec", label: e.kind.toUpperCase() };
 }
+
+const time = (t: string) =>
+  new Date(t).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 export function EventsFeed({ events }: { events: AgentEvent[] }) {
   if (!events.length)
-    return <p style={{ color: "#9ca3af" }}>Nessun evento ancora.</p>;
+    return <p className="empty">Ancora nessuna attività. L'agente è in osservazione.</p>;
 
   return (
-    <ul style={{ listStyle: "none", padding: 0, margin: 0, textAlign: "left" }}>
+    <ul className="feed">
       {events.map((e, i) => {
-        const s = eventStyle(e);
+        const t = tagOf(e);
         return (
-          <li
-            key={i}
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "baseline",
-              padding: "8px 12px",
-              marginBottom: 6,
-              borderLeft: `3px solid ${s.color}`,
-              background: "rgba(127,127,127,0.06)",
-              borderRadius: 4,
-              fontFamily: "var(--mono)",
-              fontSize: 14,
-            }}
-          >
-            <span style={{ color: s.color, fontWeight: 600, minWidth: 78 }}>
-              {s.label}
+          <li key={i}>
+            <span className={`tag ${t.cls}`}>{t.label}</span>
+            <span className="body">
+              <span className="time">{time(e.timestamp)}</span>
+              {e.message}
             </span>
-            <span
-              style={{ color: "#9ca3af", fontSize: 12, whiteSpace: "nowrap" }}
-            >
-              {new Date(e.timestamp).toLocaleString()}
-            </span>
-            <span>{e.message}</span>
           </li>
         );
       })}
