@@ -8,3 +8,6 @@ frontend/dist/
 .pytest_cache/
 .venv/
 *.egg-info/
+
+.claude/settings.local.json
+.claude/worktrees/
