@@ -34,11 +34,13 @@ def test_prompt_includes_memory_when_present():
         instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[],
         recent_events=[], memory=MemoryView(coin_theses="BTC: accumulate", strategy_notes="I FOMO on pumps"),
     )
-    _system, user = render_prompt(ctx)
+    system, user = render_prompt(ctx)
     assert "BTC: accumulate" in user
     assert "I FOMO on pumps" in user
     assert "Trade lessons:" not in user        # empty section omitted
+    assert "prior reflection" in system        # memory hint present when memory is non-empty
 
 def test_prompt_omits_memory_block_when_empty():
-    _system, user = render_prompt(_ctx())      # _ctx() has no memory
+    system, user = render_prompt(_ctx())       # _ctx() has no memory
     assert "Your memory" not in user
+    assert "prior reflection" not in system    # memory hint absent when memory is empty
