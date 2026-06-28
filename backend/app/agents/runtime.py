@@ -50,22 +50,28 @@ async def _run_decision_sma(session, agent, market, symbols, buy_usd: Decimal) -
 
 
 async def _run_decision_llm(session, agent, market, symbols, brain_decide) -> None:
-    universe = await market.get_universe_snapshot(symbols)
-    universe_symbols = {c.symbol for c in universe}
+    try:
+        universe = await market.get_universe_snapshot(symbols)
+        universe_symbols = {c.symbol for c in universe}
 
-    holdings = []
-    for pos in agent.positions:
-        last = await market.get_price(pos.symbol)
-        holdings.append((pos.symbol, pos.quantity, pos.avg_price, last))
+        holdings = []
+        for pos in agent.positions:
+            last = await market.get_price(pos.symbol)
+            holdings.append((pos.symbol, pos.quantity, pos.avg_price, last))
 
-    recent = [e.message for e in (
-        session.query(Event).filter_by(agent_id=agent.id)
-        .order_by(Event.timestamp.desc()).limit(10).all())]
+        recent = [e.message for e in (
+            session.query(Event).filter_by(agent_id=agent.id)
+            .order_by(Event.timestamp.desc()).limit(10).all())]
 
-    ctx = build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
-                        holdings=holdings, universe=universe, recent_events=recent)
-    adapter = make_adapter(agent.model_provider or "anthropic", agent.model_name or "")
-    decision = brain_decide(ctx, adapter)
+        ctx = build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
+                            holdings=holdings, universe=universe, recent_events=recent)
+        adapter = make_adapter(agent.model_provider or "anthropic", agent.model_name or "")
+        decision = brain_decide(ctx, adapter)
+    except Exception as exc:
+        session.add(Event(agent_id=agent.id, kind="decision",
+                          message=f"ciclo decisione (LLM): errore — {exc}"))
+        session.commit()
+        return
 
     held = {p.symbol: p for p in agent.positions}
     actions = skipped = errors = 0

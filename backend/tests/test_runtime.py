@@ -132,6 +132,24 @@ async def test_llm_path_executes_buy_with_guardrails(db_session):
     assert "testing" in ev.message
 
 
+async def test_llm_data_gathering_error_writes_event_no_trade(db_session):
+    """If get_universe_snapshot raises, run_decision must not raise, must write a decision
+    event recording the error, and must create zero Trade rows."""
+    agent = _llm_agent(db_session)
+
+    class FakeMarketLLMBroken:
+        async def get_universe_snapshot(self, symbols):
+            raise RuntimeError("network timeout")
+
+    market = FakeMarketLLMBroken()
+    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"))
+    trades = db_session.query(Trade).filter_by(agent_id=agent.id).all()
+    assert len(trades) == 0
+    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
+    assert "errore" in ev.message
+    assert "network timeout" in ev.message
+
+
 async def test_llm_path_sells_held_fraction(db_session):
     agent = _llm_agent(db_session)
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
