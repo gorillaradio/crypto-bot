@@ -1,0 +1,36 @@
+from app.brain.context import DecisionContext
+
+_SYSTEM = """You are an autonomous paper-trading agent managing a simulated crypto portfolio.
+Real market prices are used; trades incur fees and bid/ask spread. You may only hold coins
+listed in the universe. Server-side guardrails enforce limits, so impossible actions are dropped.
+
+Your operator's instructions:
+{instructions}
+
+Decide what to do this cycle. Respond with ONLY a JSON object of this exact shape:
+{{"actions": [{{"type": "BUY"|"SELL"|"HOLD", "symbol": "<SYMBOL or null>",
+  "usd_amount": "<USD to spend on BUY, or null>", "fraction": "<0-1 of position to SELL, or null>",
+  "rationale": "<one short sentence>"}}], "note": "<one-line thesis for this cycle>"}}
+Use BUY with usd_amount to open/add, SELL with fraction (1 = all) to reduce/close, HOLD to do nothing.
+Numbers must be JSON strings. Output JSON only, no prose."""
+
+
+def render_prompt(ctx: DecisionContext) -> tuple[str, str]:
+    system = _SYSTEM.format(instructions=ctx.instructions or "(none provided)")
+
+    lines = [f"Cash: ${ctx.cash_usd}", f"Equity: ${ctx.equity_usd}", "", "Open positions:"]
+    if ctx.positions:
+        for p in ctx.positions:
+            lines.append(f"  {p.symbol}: qty {p.quantity} @ avg ${p.avg_price}, "
+                         f"now ${p.last_price} ({p.unrealized_pnl_pct:+.2f}%)")
+    else:
+        lines.append("  (none)")
+
+    lines += ["", "Market (universe):"]
+    for c in sorted(ctx.universe, key=lambda c: c.symbol):
+        lines.append(f"  {c.symbol}: ${c.price} ({c.pct_24h:+.2f}% 24h)")
+
+    lines += ["", "Recent events:"]
+    lines += [f"  - {e}" for e in ctx.recent_events] or ["  (none)"]
+
+    return system, "\n".join(lines)
