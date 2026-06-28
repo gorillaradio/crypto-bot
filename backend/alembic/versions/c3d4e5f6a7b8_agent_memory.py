@@ -15,7 +15,7 @@ def upgrade():
         sa.Column("agent_id", sa.Integer(), sa.ForeignKey("agents.id"), nullable=False),
         sa.Column("section", sa.String(length=40), nullable=False),
         sa.Column("content", sa.String(), nullable=False, server_default=""),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("agent_id", "section", name="uq_agent_memory_section"),
     )
 
