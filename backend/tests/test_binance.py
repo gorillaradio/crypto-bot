@@ -23,11 +23,13 @@ async def test_get_top_symbols_sorted_by_volume_usdt_only():
             {"symbol": "BTCUSDT", "quoteVolume": "500"},
             {"symbol": "ETHUSDT", "quoteVolume": "900"},
             {"symbol": "FOOBTC", "quoteVolume": "9999"},
+            {"symbol": "BTCUPUSDT", "quoteVolume": "9999"},
         ])
     )
     client = BinanceClient()
     top = await client.get_top_symbols("USDT", 2)
     assert top == ["ETHUSDT", "BTCUSDT"]
+    assert "BTCUPUSDT" not in top
 
 
 @respx.mock

@@ -1,6 +1,6 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from app.db.models import Agent, Position, EquitySnapshot, Trade
+from app.db.models import Agent, Event, Position, EquitySnapshot, Trade
 from app.agents.runtime import run_heartbeat, run_decision
 
 
@@ -10,6 +10,20 @@ class FakeMarket:
     async def get_price(self, symbol): return self._price
     async def get_book_ticker(self, symbol): return self._book
     async def get_klines(self, symbol, interval, limit): return self._closes
+
+
+class FakeMarketPartialError:
+    """Returns closes for known symbols; raises RuntimeError for others."""
+    def __init__(self, closes_by_symbol, book):
+        self._closes_by_symbol = closes_by_symbol
+        self._book = book
+
+    async def get_price(self, symbol): return Decimal("100")
+    async def get_book_ticker(self, symbol): return self._book
+    async def get_klines(self, symbol, interval, limit):
+        if symbol not in self._closes_by_symbol:
+            raise RuntimeError(f"network error for {symbol}")
+        return self._closes_by_symbol[symbol]
 
 
 def _agent(session, cash="100"):
@@ -59,3 +73,24 @@ async def test_decision_buys_on_bullish_signal(db_session):
     await run_decision(db_session, agent, market, symbols=["BTCUSDT"], buy_usd=Decimal("50"))
     buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
     assert len(buys) == 1
+
+
+async def test_decision_error_isolation_skips_bad_symbol(db_session):
+    """A symbol that raises on get_klines is skipped; the good symbol still trades."""
+    agent = _agent(db_session, "200")
+    bullish_closes = [Decimal("10")] * 19 + [Decimal("5"), Decimal("100")]
+    market = FakeMarketPartialError(
+        closes_by_symbol={"ETHUSDT": bullish_closes},
+        book=(Decimal("99"), Decimal("101")),
+    )
+    await run_decision(
+        db_session, agent, market,
+        symbols=["BADUSDT", "ETHUSDT"],
+        buy_usd=Decimal("50"),
+    )
+    buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
+    assert len(buys) == 1
+    assert buys[0].symbol == "ETHUSDT"
+    event = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
+    assert event is not None
+    assert "1 errori" in event.message

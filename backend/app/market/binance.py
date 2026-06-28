@@ -30,6 +30,10 @@ class BinanceClient:
 
     async def get_top_symbols(self, quote: str = "USDT", n: int = 100) -> list[str]:
         data = await self._get("/api/v3/ticker/24hr", {})
-        usdt = [d for d in data if d["symbol"].endswith(quote)]
+        usdt = [
+            d for d in data
+            if d["symbol"].endswith(quote)
+            and not d["symbol"][: -len(quote)].endswith(("UP", "DOWN"))
+        ]
         usdt.sort(key=lambda d: Decimal(d["quoteVolume"]), reverse=True)
         return [d["symbol"] for d in usdt[:n]]
