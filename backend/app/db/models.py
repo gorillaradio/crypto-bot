@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import ForeignKey, Numeric, String, DateTime
+from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -64,3 +64,13 @@ class Event(Base):
     kind: Mapped[str] = mapped_column(String(30))
     message: Mapped[str] = mapped_column(String)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AgentMemory(Base):
+    __tablename__ = "agent_memory"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
+    section: Mapped[str] = mapped_column(String(40))
+    content: Mapped[str] = mapped_column(String, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    __table_args__ = (UniqueConstraint("agent_id", "section", name="uq_agent_memory_section"),)
