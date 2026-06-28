@@ -58,8 +58,8 @@ export default function App() {
 
   useEffect(() => {
     if (selId == null) return;
+    setMemory(null);
     const load = () => {
-      setMemory(null);
       getEquity(selId).then(setEquity).catch(() => {});
       getEvents(selId).then(setEvents).catch(() => {});
       getPositions(selId).then(setPositions).catch(() => {});
