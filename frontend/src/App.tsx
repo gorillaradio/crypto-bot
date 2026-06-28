@@ -20,7 +20,7 @@ export default function App() {
   }, [agents]);
 
   return (
-    <main style={{ maxWidth: 900, margin: "2rem auto" }}>
+    <main style={{ maxWidth: 900, margin: "2rem auto", padding: "0 1rem", textAlign: "left" }}>
       <h1>crypto-bot</h1>
       {agents[0] && <PositionsTable cash={agents[0].cash_usd} />}
       <EquityChart data={equity} />

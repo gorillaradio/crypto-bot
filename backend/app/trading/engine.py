@@ -3,6 +3,19 @@ from app.core.config import settings
 from app.db.models import Agent, Position, Trade, Event
 
 
+def _trim(s: str) -> str:
+    return (s.rstrip("0").rstrip(".")) if "." in s else s
+
+
+def _fmt_qty(d: Decimal) -> str:
+    step = Decimal("0.0001") if abs(d) >= 1 else Decimal("0.00000001")
+    return _trim(f"{d.quantize(step):f}")
+
+
+def _fmt_price(d: Decimal) -> str:
+    return _trim(f"{d:f}")
+
+
 def _get_position(session, agent_id, symbol):
     return session.query(Position).filter_by(agent_id=agent_id, symbol=symbol).first()
 
@@ -29,7 +42,7 @@ def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: De
                   quantity=quantity, price=ask, fee=fee)
     session.add(trade)
     session.add(Event(agent_id=agent.id, kind="trade",
-                      message=f"BUY {quantity} {symbol} @ {ask} (fee {fee})"))
+                      message=f"BUY {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(ask)} (fee ${_fmt_price(fee)})"))
     session.commit()
     return trade
 
@@ -50,6 +63,6 @@ def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Dec
                   quantity=quantity, price=bid, fee=fee)
     session.add(trade)
     session.add(Event(agent_id=agent.id, kind="trade",
-                      message=f"SELL {quantity} {symbol} @ {bid} (fee {fee})"))
+                      message=f"SELL {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(bid)} (fee ${_fmt_price(fee)})"))
     session.commit()
     return trade
