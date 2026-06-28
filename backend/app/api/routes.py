@@ -3,8 +3,8 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.db.base import SessionLocal
-from app.db.models import Agent, EquitySnapshot, Event, Position
-from app.api.schemas import AgentCreate, AgentOut, EquityPoint, EventOut, PositionOut
+from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position
+from app.api.schemas import AgentCreate, AgentOut, EquityPoint, EventOut, MemoryOut, PositionOut
 
 router = APIRouter(prefix="/api")
 
@@ -100,6 +100,17 @@ def get_equity(agent_id: int, session=Depends(session_dep)):
         .all()
     )
     return rows
+
+
+@router.get("/agents/{agent_id}/memory", response_model=MemoryOut)
+def get_memory(agent_id: int, session=Depends(session_dep)):
+    rows = {r.section: r.content for r in
+            session.query(AgentMemory).filter_by(agent_id=agent_id).all()}
+    return MemoryOut(
+        coin_theses=rows.get("coin_theses", ""),
+        trade_lessons=rows.get("trade_lessons", ""),
+        strategy_notes=rows.get("strategy_notes", ""),
+    )
 
 
 @router.get("/agents/{agent_id}/events", response_model=list[EventOut])

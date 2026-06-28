@@ -41,3 +41,9 @@ class EventOut(BaseModel):
     timestamp: datetime
     kind: str
     message: str
+
+
+class MemoryOut(BaseModel):
+    coin_theses: str
+    trade_lessons: str
+    strategy_notes: str

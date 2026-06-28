@@ -105,6 +105,21 @@ def test_invalid_model_provider_rejected_at_boundary(db_session):
     assert resp.status_code == 422
 
 
+def test_get_agent_memory_returns_sections(db_session):
+    from app.db.models import AgentMemory
+    agent = Agent(name="Mem", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bull"))
+    db_session.commit()
+    client = _client(db_session)
+    r = client.get(f"/api/agents/{agent.id}/memory")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["coin_theses"] == "BTC: bull"
+    assert body["trade_lessons"] == ""        # missing section -> empty string
+
+
 def test_get_events_returns_last_100_desc(db_session):
     from app.db.models import Event
     agent = Agent(name="C", duration_start=datetime.now(timezone.utc),
