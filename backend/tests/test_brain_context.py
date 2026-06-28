@@ -2,6 +2,22 @@ from decimal import Decimal
 from app.brain.context import build_context, CoinSnapshot
 
 
+def test_build_context_carries_memory():
+    from app.brain.context import MemoryView
+    mem = MemoryView(coin_theses="BTC: bull", trade_lessons="sold too early")
+    ctx = build_context(
+        instructions="x", cash_usd=Decimal("10"), holdings=[],
+        universe=[], recent_events=[], memory=mem,
+    )
+    assert ctx.memory.coin_theses == "BTC: bull"
+    assert ctx.memory.strategy_notes == ""        # default empty section
+
+def test_build_context_defaults_memory_empty():
+    ctx = build_context(instructions="x", cash_usd=Decimal("10"),
+                        holdings=[], universe=[], recent_events=[])
+    assert ctx.memory.coin_theses == ""
+
+
 def test_build_context_computes_equity_and_pnl():
     ctx = build_context(
         instructions="be bold",

@@ -19,6 +19,13 @@ class CoinSnapshot:
 
 
 @dataclass
+class MemoryView:
+    coin_theses: str = ""
+    trade_lessons: str = ""
+    strategy_notes: str = ""
+
+
+@dataclass
 class DecisionContext:
     instructions: str
     cash_usd: Decimal
@@ -26,9 +33,10 @@ class DecisionContext:
     positions: list[PositionView]
     universe: list[CoinSnapshot]
     recent_events: list[str]
+    memory: MemoryView
 
 
-def build_context(*, instructions, cash_usd, holdings, universe, recent_events) -> DecisionContext:
+def build_context(*, instructions, cash_usd, holdings, universe, recent_events, memory=None) -> DecisionContext:
     positions: list[PositionView] = []
     equity = cash_usd
     for symbol, quantity, avg_price, last_price in holdings:
@@ -38,4 +46,5 @@ def build_context(*, instructions, cash_usd, holdings, universe, recent_events) 
     return DecisionContext(
         instructions=instructions, cash_usd=cash_usd, equity_usd=equity,
         positions=positions, universe=universe, recent_events=recent_events,
+        memory=memory or MemoryView(),
     )

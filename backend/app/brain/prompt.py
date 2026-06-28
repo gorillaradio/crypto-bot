@@ -7,6 +7,8 @@ listed in the universe. Server-side guardrails enforce limits, so impossible act
 Your operator's instructions:
 {instructions}
 
+Your memory below is your own prior reflection on past trades — treat it as your evolving view.
+
 Decide what to do this cycle. Respond with ONLY a JSON object of this exact shape:
 {{"actions": [{{"type": "BUY"|"SELL"|"HOLD", "symbol": "<SYMBOL or null>",
   "usd_amount": "<USD to spend on BUY, or null>", "fraction": "<0-1 of position to SELL, or null>",
@@ -32,5 +34,17 @@ def render_prompt(ctx: DecisionContext) -> tuple[str, str]:
 
     lines += ["", "Recent events:"]
     lines += [f"  - {e}" for e in ctx.recent_events] or ["  (none)"]
+
+    mem = ctx.memory
+    mem_lines = []
+    for label, text in (("Coin theses", mem.coin_theses),
+                        ("Trade lessons", mem.trade_lessons),
+                        ("Strategy notes", mem.strategy_notes)):
+        rows = [l for l in text.splitlines() if l.strip()]
+        if rows:
+            mem_lines.append(f"{label}:")
+            mem_lines += [f"  - {l}" for l in rows]
+    if mem_lines:
+        lines += ["", "Your memory (you wrote this; update your behaviour accordingly):"] + mem_lines
 
     return system, "\n".join(lines)

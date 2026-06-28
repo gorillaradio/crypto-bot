@@ -26,3 +26,19 @@ def test_universe_rendered_sorted_and_deterministic():
     system2, user2 = render_prompt(_ctx())
     assert user1 == user2                                # deterministic
     assert user1.index("BTCUSDT") < user1.index("ETHUSDT")  # sorted by symbol
+
+
+def test_prompt_includes_memory_when_present():
+    from app.brain.context import MemoryView
+    ctx = build_context(
+        instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[],
+        recent_events=[], memory=MemoryView(coin_theses="BTC: accumulate", strategy_notes="I FOMO on pumps"),
+    )
+    _system, user = render_prompt(ctx)
+    assert "BTC: accumulate" in user
+    assert "I FOMO on pumps" in user
+    assert "Trade lessons:" not in user        # empty section omitted
+
+def test_prompt_omits_memory_block_when_empty():
+    _system, user = render_prompt(_ctx())      # _ctx() has no memory
+    assert "Your memory" not in user
