@@ -5,12 +5,34 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://crypto:crypto@localhost:5432/crypto"
+    database_url: str = "postgresql+psycopg://crypto:crypto@postgres:5432/crypto"
     initial_capital_usd: Decimal = Decimal("100")
     fee_rate: Decimal = Decimal("0.001")
     heartbeat_seconds: int = 300
     decision_seconds: int = 3600
     universe_default: str = "TOP_100"
+
+    # --- brain v1 ---
+    min_trade_usd: Decimal = Decimal("5")
+
+    anthropic_api_key: str = ""
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    glm_api_key: str = ""
+    glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"  # verify at Task 5
+
+    @property
+    def decision_buy_default_usd(self) -> Decimal:
+        return self.initial_capital_usd / Decimal("10")
+
+    def provider_api_key(self, provider: str) -> str:
+        return {"anthropic": self.anthropic_api_key,
+                "deepseek": self.deepseek_api_key,
+                "glm": self.glm_api_key}[provider]
+
+    def provider_base_url(self, provider: str) -> str:
+        return {"deepseek": self.deepseek_base_url,
+                "glm": self.glm_base_url}.get(provider, "")
 
 
 settings = Settings()

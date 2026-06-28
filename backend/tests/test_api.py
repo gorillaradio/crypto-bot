@@ -85,6 +85,17 @@ def test_get_positions_returns_holdings_with_cost_basis(db_session):
     assert Decimal(rows[0]["cost_basis"]) == Decimal("50.0")
 
 
+def test_create_llm_agent_persists_model_fields(db_session):
+    client = _client(db_session)
+    resp = client.post("/api/agents", json={
+        "name": "Brainy", "instructions": "buy low", "duration_days": 7,
+        "strategy": "llm", "model_provider": "deepseek", "model_name": "deepseek-chat"})
+    assert resp.status_code == 201
+    from app.db.models import Agent
+    a = db_session.query(Agent).filter_by(name="Brainy").one()
+    assert a.strategy == "llm" and a.model_provider == "deepseek" and a.model_name == "deepseek-chat"
+
+
 def test_get_events_returns_last_100_desc(db_session):
     from app.db.models import Event
     agent = Agent(name="C", duration_start=datetime.now(timezone.utc),

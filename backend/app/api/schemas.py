@@ -7,6 +7,9 @@ class AgentCreate(BaseModel):
     name: str
     instructions: str = ""
     duration_days: int = 7
+    strategy: str = "llm"
+    model_provider: str | None = None
+    model_name: str | None = None
 
 
 class AgentOut(BaseModel):

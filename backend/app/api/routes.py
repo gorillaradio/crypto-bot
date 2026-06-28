@@ -54,6 +54,9 @@ def create_agent(payload: AgentCreate, session=Depends(session_dep)):
         duration_end=now + timedelta(days=payload.duration_days),
         cash_usd=settings.initial_capital_usd,
         universe=settings.universe_default,
+        strategy=payload.strategy,
+        model_provider=payload.model_provider,
+        model_name=payload.model_name,
     )
     session.add(agent)
     session.commit()
