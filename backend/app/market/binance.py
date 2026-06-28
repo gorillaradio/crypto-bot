@@ -1,5 +1,6 @@
 from decimal import Decimal
 import httpx
+from app.brain.context import CoinSnapshot
 
 BASE_URL = "https://api.binance.com"
 
@@ -37,3 +38,15 @@ class BinanceClient:
         ]
         usdt.sort(key=lambda d: Decimal(d["quoteVolume"]), reverse=True)
         return [d["symbol"] for d in usdt[:n]]
+
+    async def get_universe_snapshot(self, symbols: list[str]) -> list[CoinSnapshot]:
+        data = await self._get("/api/v3/ticker/24hr", {})
+        by_symbol = {d["symbol"]: d for d in data}
+        out = []
+        for s in symbols:
+            d = by_symbol.get(s)
+            if d is None:
+                continue
+            out.append(CoinSnapshot(symbol=s, price=Decimal(d["lastPrice"]),
+                                    pct_24h=Decimal(d["priceChangePercent"])))
+        return out

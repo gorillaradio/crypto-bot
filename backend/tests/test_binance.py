@@ -43,3 +43,20 @@ async def test_get_klines_returns_close_prices():
     client = BinanceClient()
     closes = await client.get_klines("BTCUSDT", "1h", 2)
     assert closes == [Decimal("1.5"), Decimal("2.5")]
+
+
+@respx.mock
+async def test_get_universe_snapshot_filters_and_parses():
+    respx.get(f"{BASE}/api/v3/ticker/24hr").mock(
+        return_value=httpx.Response(200, json=[
+            {"symbol": "BTCUSDT", "lastPrice": "60000.0", "priceChangePercent": "2.5"},
+            {"symbol": "ETHUSDT", "lastPrice": "3000.0", "priceChangePercent": "-1.0"},
+            {"symbol": "JUNKUSDT", "lastPrice": "1.0", "priceChangePercent": "0"},
+        ])
+    )
+    from app.brain.context import CoinSnapshot
+    snap = await BinanceClient().get_universe_snapshot(["ETHUSDT", "BTCUSDT"])
+    assert [c.symbol for c in snap] == ["ETHUSDT", "BTCUSDT"]   # order preserved
+    assert snap[1].price == Decimal("60000.0")
+    assert snap[1].pct_24h == Decimal("2.5")
+    assert isinstance(snap[0], CoinSnapshot)
