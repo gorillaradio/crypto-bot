@@ -1,5 +1,8 @@
+import logging
 from typing import Protocol
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderAdapter(Protocol):
@@ -37,11 +40,18 @@ class AnthropicAdapter:
 def make_adapter(provider: str, model: str) -> ProviderAdapter:
     if provider == "anthropic":
         import anthropic
+        api_key = settings.provider_api_key(provider)
+        if not api_key:
+            logger.warning("No API key configured for provider '%s'; LLM calls will fail at runtime", provider)
+            api_key = "placeholder"
         return AnthropicAdapter(
-            anthropic.Anthropic(api_key=settings.provider_api_key(provider)), model
+            anthropic.Anthropic(api_key=api_key), model
         )
     import openai
-    api_key = settings.provider_api_key(provider) or "placeholder"
+    api_key = settings.provider_api_key(provider)
+    if not api_key:
+        logger.warning("No API key configured for provider '%s'; LLM calls will fail at runtime", provider)
+        api_key = "placeholder"
     client = openai.OpenAI(
         api_key=api_key,
         base_url=settings.provider_base_url(provider),
