@@ -19,6 +19,11 @@ export type Position = {
   avg_price: string;
   cost_basis: string;
 };
+export type AgentMemory = {
+  coin_theses: string;
+  trade_lessons: string;
+  strategy_notes: string;
+};
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
@@ -30,3 +35,4 @@ export const getAgents = () => get<Agent[]>("/api/agents");
 export const getEquity = (id: number) => get<EquityPoint[]>(`/api/agents/${id}/equity`);
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
+export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);

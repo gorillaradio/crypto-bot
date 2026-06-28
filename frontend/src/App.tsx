@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  getAgents, getEquity, getEvents, getPositions,
-  type Agent, type EquityPoint, type AgentEvent, type Position,
+  getAgents, getEquity, getEvents, getPositions, getMemory,
+  type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory,
 } from "./api";
 import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
+import { MemoryPanel } from "./components/MemoryPanel";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
 
@@ -42,6 +43,7 @@ export default function App() {
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [memory, setMemory] = useState<AgentMemory | null>(null);
 
   useEffect(() => {
     const load = () => getAgents().then(setAgents).catch(() => {});
@@ -60,6 +62,7 @@ export default function App() {
       getEquity(selId).then(setEquity).catch(() => {});
       getEvents(selId).then(setEvents).catch(() => {});
       getPositions(selId).then(setPositions).catch(() => {});
+      getMemory(selId).then(setMemory).catch(() => {});
     };
     load();
     const h = setInterval(load, 15000);
@@ -133,6 +136,11 @@ export default function App() {
               <EventsFeed events={events} />
             </section>
           </div>
+
+          <section className="card">
+            <h2>Memoria</h2>
+            {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
+          </section>
         </>
       )}
     </div>
