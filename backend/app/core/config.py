@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     glm_api_key: str = ""
     glm_base_url: str = "https://api.z.ai/api/paas/v4"
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     @property
     def decision_buy_default_usd(self) -> Decimal:
@@ -28,11 +30,13 @@ class Settings(BaseSettings):
     def provider_api_key(self, provider: str) -> str:
         return {"anthropic": self.anthropic_api_key,
                 "deepseek": self.deepseek_api_key,
-                "glm": self.glm_api_key}[provider]
+                "glm": self.glm_api_key,
+                "openrouter": self.openrouter_api_key}[provider]
 
     def provider_base_url(self, provider: str) -> str:
         return {"deepseek": self.deepseek_base_url,
-                "glm": self.glm_base_url}.get(provider, "")
+                "glm": self.glm_base_url,
+                "openrouter": self.openrouter_base_url}.get(provider, "")
 
 
 settings = Settings()

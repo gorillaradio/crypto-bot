@@ -49,4 +49,5 @@ def test_anthropic_adapter_returns_text():
 def test_make_adapter_selects_type():
     assert isinstance(make_adapter("deepseek", "deepseek-v4-flash"), OpenAICompatAdapter)
     assert isinstance(make_adapter("glm", "glm-4.6"), OpenAICompatAdapter)
+    assert isinstance(make_adapter("openrouter", "deepseek/deepseek-v4-flash"), OpenAICompatAdapter)
     assert isinstance(make_adapter("anthropic", "claude-haiku-4-5"), AnthropicAdapter)

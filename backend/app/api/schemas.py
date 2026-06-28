@@ -9,7 +9,7 @@ class AgentCreate(BaseModel):
     instructions: str = ""
     duration_days: int = 7
     strategy: Literal["sma", "llm"] = "llm"
-    model_provider: Literal["anthropic", "deepseek", "glm"] | None = None
+    model_provider: Literal["anthropic", "deepseek", "glm", "openrouter"] | None = None
     model_name: str | None = None
 
 
