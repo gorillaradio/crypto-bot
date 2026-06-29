@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes
-from app.db.models import Agent, EquitySnapshot
+from app.db.models import Agent, EquitySnapshot, Agent as AgentModel
 
 
 @pytest.fixture(autouse=True)
@@ -133,3 +133,28 @@ def test_get_events_returns_last_100_desc(db_session):
     resp = client.get(f"/api/agents/{agent.id}/events")
     assert resp.status_code == 200
     assert len(resp.json()) == 5
+
+
+def test_create_agent_persists_chosen_universe(db_session):
+    client = _client(db_session)
+    resp = client.post("/api/agents", json={
+        "name": "Small", "instructions": "", "duration_days": 7, "universe": "TOP_50"})
+    assert resp.status_code == 201
+    agent = db_session.query(AgentModel).filter_by(name="Small").one()
+    assert agent.universe == "TOP_50"
+
+
+def test_create_agent_defaults_universe_to_top_100(db_session):
+    client = _client(db_session)
+    resp = client.post("/api/agents", json={
+        "name": "Big", "instructions": "", "duration_days": 7})
+    assert resp.status_code == 201
+    agent = db_session.query(AgentModel).filter_by(name="Big").one()
+    assert agent.universe == "TOP_100"
+
+
+def test_create_agent_rejects_invalid_universe(db_session):
+    client = _client(db_session)
+    resp = client.post("/api/agents", json={
+        "name": "Bad", "duration_days": 7, "universe": "TOP_500"})
+    assert resp.status_code == 422
