@@ -76,3 +76,11 @@ class AgentMemory(Base):
     content: Mapped[str] = mapped_column(String, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
     __table_args__ = (UniqueConstraint("agent_id", "section", name="uq_agent_memory_section"),)
+
+
+class ShareLink(Base):
+    __tablename__ = "share_links"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

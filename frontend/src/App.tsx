@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   getAgents, getEquity, getEvents, getPositions, getMemory,
-  type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory,
+  getMe, logout as apiLogout, exchangeViewerToken, AuthError,
+  type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
 } from "./api";
 import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
@@ -11,6 +12,8 @@ import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
 import { AgentSidebar } from "./components/AgentSidebar";
 import { InstructionsBlock } from "./components/InstructionsBlock";
+import { Login } from "./components/Login";
+import { ShareLinksModal } from "./components/ShareLinksModal";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
 
@@ -41,18 +44,23 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-export default function App() {
+function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost: () => void }) {
+  const isAdmin = role === "admin";
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selId, setSelId] = useState<number | null>(null);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
-  const [modal, setModal] = useState<"create" | "edit" | "delete" | null>(null);
+  const [modal, setModal] = useState<"create" | "edit" | "delete" | "share" | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
+  // A 401 mid-session (e.g. a viewer's link was revoked) means the session is
+  // gone — bounce back to the login screen instead of swallowing the error.
+  const onErr = (e: unknown) => { if (e instanceof AuthError) onAuthLost(); };
+
   useEffect(() => {
-    const load = () => getAgents().then(setAgents).catch(() => {});
+    const load = () => getAgents().then(setAgents).catch(onErr);
     load();
     const h = setInterval(load, 15000);
     return () => clearInterval(h);
@@ -66,17 +74,16 @@ export default function App() {
     if (selId == null) return;
     setMemory(null);
     const load = () => {
-      getEquity(selId).then(setEquity).catch(() => {});
-      getEvents(selId).then(setEvents).catch(() => {});
-      getPositions(selId).then(setPositions).catch(() => {});
-      getMemory(selId).then(setMemory).catch(() => {});
+      getEquity(selId).then(setEquity).catch(onErr);
+      getEvents(selId).then(setEvents).catch(onErr);
+      getPositions(selId).then(setPositions).catch(onErr);
+      getMemory(selId).then(setMemory).catch(onErr);
     };
     load();
     const h = setInterval(load, 15000);
     return () => clearInterval(h);
   }, [selId]);
 
-  // Close the mobile sheet on Escape.
   useEffect(() => {
     if (!navOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setNavOpen(false);
@@ -84,28 +91,25 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [navOpen]);
 
-  const reloadAgents = () => getAgents().then(setAgents).catch(() => {});
+  const reloadAgents = () => getAgents().then(setAgents).catch(onErr);
+  const doLogout = async () => { await apiLogout().catch(() => {}); onAuthLost(); };
 
   const sel = useMemo(() => agents.find((a) => a.id === selId) ?? null, [agents, selId]);
   const equityNum = sel ? Number(sel.equity) : 0;
   const cashNum = sel ? Number(sel.cash_usd) : 0;
   const inPositions = Math.max(equityNum - cashNum, 0);
 
-  const selectAgent = (id: number) => {
-    setSelId(id);
-    setNavOpen(false);
-  };
-  const openCreate = () => {
-    setModal("create");
-    setNavOpen(false);
-  };
+  const selectAgent = (id: number) => { setSelId(id); setNavOpen(false); };
+  const openCreate = () => { setModal("create"); setNavOpen(false); };
 
   const sidebar = (
     <AgentSidebar
       agents={agents}
       selId={selId}
       onSelect={selectAgent}
-      onCreate={openCreate}
+      onCreate={isAdmin ? openCreate : undefined}
+      onShare={isAdmin ? () => { setModal("share"); setNavOpen(false); } : undefined}
+      onLogout={doLogout}
     />
   );
 
@@ -141,10 +145,12 @@ export default function App() {
             <section className="agent-header">
               <div className="agent-title">
                 <h1>{sel.name}</h1>
-                <div className="agent-actions">
-                  <button className="btn-ghost" onClick={() => setModal("edit")}>modifica</button>
-                  <button className="btn-ghost danger" onClick={() => setModal("delete")}>elimina</button>
-                </div>
+                {isAdmin && (
+                  <div className="agent-actions">
+                    <button className="btn-ghost" onClick={() => setModal("edit")}>modifica</button>
+                    <button className="btn-ghost danger" onClick={() => setModal("delete")}>elimina</button>
+                  </div>
+                )}
               </div>
               {sel.instructions && <InstructionsBlock text={sel.instructions} />}
               <span className="meta">
@@ -186,20 +192,26 @@ export default function App() {
           </>
         ) : (
           <section className="card empty-state">
-            <p className="empty">Nessun agente ancora. Creane uno per iniziare l'esperimento.</p>
-            <button className="btn-primary" onClick={() => setModal("create")}>+ nuovo agente</button>
+            <p className="empty">
+              {isAdmin
+                ? "Nessun agente ancora. Creane uno per iniziare l'esperimento."
+                : "Nessun agente da mostrare."}
+            </p>
+            {isAdmin && (
+              <button className="btn-primary" onClick={() => setModal("create")}>+ nuovo agente</button>
+            )}
           </section>
         )}
       </main>
 
-      {modal === "create" && (
+      {isAdmin && modal === "create" && (
         <AgentFormModal
           mode="create"
           onClose={() => setModal(null)}
           onSaved={(a) => { setModal(null); reloadAgents(); setSelId(a.id); }}
         />
       )}
-      {modal === "edit" && sel && (
+      {isAdmin && modal === "edit" && sel && (
         <AgentFormModal
           mode="edit"
           agent={sel}
@@ -207,7 +219,7 @@ export default function App() {
           onSaved={() => { setModal(null); reloadAgents(); }}
         />
       )}
-      {modal === "delete" && sel && (
+      {isAdmin && modal === "delete" && sel && (
         <ConfirmDeleteModal
           agent={sel}
           onClose={() => setModal(null)}
@@ -218,6 +230,33 @@ export default function App() {
           }}
         />
       )}
+      {isAdmin && modal === "share" && (
+        <ShareLinksModal onClose={() => setModal(null)} />
+      )}
     </div>
   );
+}
+
+export default function App() {
+  const [role, setRole] = useState<Role | "loading">("loading");
+
+  const bootstrap = () => getMe().then((r) => setRole(r.role)).catch(() => setRole(null));
+
+  useEffect(() => {
+    const token = window.location.hash.slice(1);
+    if (token) {
+      exchangeViewerToken(token)
+        .catch(() => {})
+        .finally(() => {
+          history.replaceState(null, "", window.location.pathname + window.location.search);
+          bootstrap();
+        });
+    } else {
+      bootstrap();
+    }
+  }, []);
+
+  if (role === "loading") return <div className="login-screen" />;
+  if (role === null) return <Login onAuthed={bootstrap} />;
+  return <Dashboard role={role} onAuthLost={() => setRole(null)} />;
 }

@@ -17,13 +17,15 @@ type Props = {
   agents: Agent[];
   selId: number | null;
   onSelect: (id: number) => void;
-  onCreate: () => void;
+  onCreate?: () => void;
+  onShare?: () => void;
+  onLogout: () => void;
 };
 
 // Agent switcher + at-a-glance leaderboard. Same component drives the persistent
 // desktop rail and the mobile sheet; ranked by equity so "chi sta vincendo" reads
 // instantly (a core PRODUCT.md principle).
-export function AgentSidebar({ agents, selId, onSelect, onCreate }: Props) {
+export function AgentSidebar({ agents, selId, onSelect, onCreate, onShare, onLogout }: Props) {
   const ranked = [...agents].sort((a, b) => Number(b.equity) - Number(a.equity));
 
   return (
@@ -61,9 +63,16 @@ export function AgentSidebar({ agents, selId, onSelect, onCreate }: Props) {
         })}
       </div>
 
-      <button className="rail-add" onClick={onCreate}>
-        <span aria-hidden="true">+</span> nuovo agente
-      </button>
+      {onCreate && (
+        <button className="rail-add" onClick={onCreate}>
+          <span aria-hidden="true">+</span> nuovo agente
+        </button>
+      )}
+
+      <div className="rail-foot">
+        {onShare && <button className="btn-ghost" onClick={onShare}>Condividi</button>}
+        <button className="btn-ghost" onClick={onLogout}>Esci</button>
+      </div>
     </nav>
   );
 }

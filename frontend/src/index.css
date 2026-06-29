@@ -284,3 +284,25 @@ h1, h2, h3 { font-weight: 600; color: var(--ink); margin: 0; letter-spacing: -0.
   .modal { animation: modal-in 120ms ease-out; }
   @keyframes modal-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 }
+
+/* --- auth: login screen, sidebar footer, share-link panel --- */
+.login-screen { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card { width: 320px; max-width: 100%; display: flex; flex-direction: column;
+  gap: 6px; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+.login-card .logo { margin-bottom: 12px; }
+.login-card label { font-size: 0.85rem; color: var(--muted); }
+.login-card input { padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r); color: var(--ink); }
+.login-card .btn-primary { margin-top: 12px; }
+.rail-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; }
+
+.share-create { display: flex; gap: 8px; margin: 12px 0; }
+.share-create input { flex: 1; padding: 8px 10px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--r); color: var(--ink); }
+.share-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.share-row { display: flex; align-items: center; gap: 10px; }
+.share-meta { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.share-label { font-size: 0.85rem; color: var(--muted); }
+.share-url { width: 100%; padding: 6px 8px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--r); color: var(--ink); font-size: 0.8rem; }

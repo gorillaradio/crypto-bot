@@ -51,3 +51,27 @@ class MemoryOut(BaseModel):
     coin_theses: str
     trade_lessons: str
     strategy_notes: str
+
+
+class LoginIn(BaseModel):
+    password: str
+
+
+class ViewerIn(BaseModel):
+    token: str
+
+
+class MeOut(BaseModel):
+    role: str | None = None
+
+
+class ShareLinkIn(BaseModel):
+    label: str | None = None
+
+
+class ShareLinkOut(BaseModel):
+    id: int
+    label: str | None
+    token: str
+    url: str
+    created_at: datetime
