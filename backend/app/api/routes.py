@@ -2,19 +2,11 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
-from app.db.base import SessionLocal
+from app.api.auth import session_dep
 from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position, Trade
 from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, EquityPoint, EventOut, MemoryOut, PositionOut
 
 router = APIRouter(prefix="/api")
-
-
-def session_dep():
-    session = SessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 def _latest_equity(session, agent: Agent) -> Decimal:
