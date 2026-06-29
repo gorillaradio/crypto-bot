@@ -3,8 +3,8 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.db.base import SessionLocal
-from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position
-from app.api.schemas import AgentCreate, AgentOut, EquityPoint, EventOut, MemoryOut, PositionOut
+from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position, Trade
+from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, EquityPoint, EventOut, MemoryOut, PositionOut
 
 router = APIRouter(prefix="/api")
 
@@ -53,7 +53,7 @@ def create_agent(payload: AgentCreate, session=Depends(session_dep)):
         duration_start=now,
         duration_end=now + timedelta(days=payload.duration_days),
         cash_usd=settings.initial_capital_usd,
-        universe=settings.universe_default,
+        universe=payload.universe,
         strategy=payload.strategy,
         model_provider=payload.model_provider,
         model_name=payload.model_name,
@@ -75,6 +75,28 @@ def get_agent(agent_id: int, session=Depends(session_dep)):
     if agent is None:
         raise HTTPException(404, "agent not found")
     return _agent_out(session, agent)
+
+
+@router.patch("/agents/{agent_id}", response_model=AgentOut)
+def update_agent(agent_id: int, payload: AgentUpdate, session=Depends(session_dep)):
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "agent not found")
+    agent.name = payload.name
+    session.commit()
+    session.refresh(agent)
+    return _agent_out(session, agent)
+
+
+@router.delete("/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_agent(agent_id: int, session=Depends(session_dep)):
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "agent not found")
+    for model in (Position, Trade, EquitySnapshot, Event, AgentMemory):
+        session.query(model).filter_by(agent_id=agent_id).delete(synchronize_session=False)
+    session.delete(agent)
+    session.commit()
 
 
 @router.get("/agents/{agent_id}/positions", response_model=list[PositionOut])

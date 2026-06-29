@@ -7,6 +7,8 @@ import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
+import { AgentFormModal } from "./components/AgentFormModal";
+import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
 
@@ -44,6 +46,7 @@ export default function App() {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
+  const [modal, setModal] = useState<"create" | "edit" | "delete" | null>(null);
 
   useEffect(() => {
     const load = () => getAgents().then(setAgents).catch(() => {});
@@ -70,6 +73,8 @@ export default function App() {
     return () => clearInterval(h);
   }, [selId]);
 
+  const reloadAgents = () => getAgents().then(setAgents).catch(() => {});
+
   const sel = useMemo(() => agents.find((a) => a.id === selId) ?? null, [agents, selId]);
   const equityNum = sel ? Number(sel.equity) : 0;
   const cashNum = sel ? Number(sel.cash_usd) : 0;
@@ -82,24 +87,25 @@ export default function App() {
         <span className="live"><span className="dot" /> live</span>
       </header>
 
-      {agents.length > 0 && (
-        <section className="agents-bar">
-          {agents.map((a) => {
-            const ret = Number(a.return_pct);
-            return (
-              <button
-                key={a.id}
-                className={`agent-tile${a.id === selId ? " sel" : ""}`}
-                onClick={() => setSelId(a.id)}
-              >
-                <div className="name">{a.name}</div>
-                <div className="eq num">{usd(Number(a.equity))}</div>
-                <div className="ret"><Return pct={ret} /></div>
-              </button>
-            );
-          })}
-        </section>
-      )}
+      <section className="agents-bar">
+        {agents.map((a) => {
+          const ret = Number(a.return_pct);
+          return (
+            <button
+              key={a.id}
+              className={`agent-tile${a.id === selId ? " sel" : ""}`}
+              onClick={() => setSelId(a.id)}
+            >
+              <div className="name">{a.name}</div>
+              <div className="eq num">{usd(Number(a.equity))}</div>
+              <div className="ret"><Return pct={ret} /></div>
+            </button>
+          );
+        })}
+        <button className="agent-tile add" onClick={() => setModal("create")}>
+          + nuovo agente
+        </button>
+      </section>
 
       {sel && (
         <>
@@ -109,6 +115,10 @@ export default function App() {
             <span className="meta">
               in corso da {elapsed(sel.duration_start)} · stato: {sel.status}
             </span>
+            <div className="agent-actions">
+              <button className="btn-ghost" onClick={() => setModal("edit")}>modifica</button>
+              <button className="btn-ghost danger" onClick={() => setModal("delete")}>elimina</button>
+            </div>
           </section>
 
           <section className="stats">
@@ -143,6 +153,33 @@ export default function App() {
             {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
           </section>
         </>
+      )}
+
+      {modal === "create" && (
+        <AgentFormModal
+          mode="create"
+          onClose={() => setModal(null)}
+          onSaved={(a) => { setModal(null); reloadAgents(); setSelId(a.id); }}
+        />
+      )}
+      {modal === "edit" && sel && (
+        <AgentFormModal
+          mode="edit"
+          agent={sel}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); reloadAgents(); }}
+        />
+      )}
+      {modal === "delete" && sel && (
+        <ConfirmDeleteModal
+          agent={sel}
+          onClose={() => setModal(null)}
+          onDeleted={(id) => {
+            setModal(null);
+            setSelId((cur) => (cur === id ? null : cur));
+            reloadAgents();
+          }}
+        />
       )}
     </div>
   );

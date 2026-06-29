@@ -11,6 +11,11 @@ class AgentCreate(BaseModel):
     strategy: Literal["sma", "llm"] = "llm"
     model_provider: Literal["anthropic", "deepseek", "glm", "openrouter"] | None = None
     model_name: str | None = None
+    universe: Literal["TOP_50", "TOP_100"] = "TOP_100"
+
+
+class AgentUpdate(BaseModel):
+    name: str
 
 
 class AgentOut(BaseModel):
