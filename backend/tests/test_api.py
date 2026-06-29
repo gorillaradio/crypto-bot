@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes
-from app.db.models import Agent, EquitySnapshot, Agent as AgentModel
+from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, Trade, Event, AgentMemory
 
 
 @pytest.fixture(autouse=True)
@@ -172,4 +172,34 @@ def test_patch_agent_renames(db_session):
 def test_patch_agent_404_when_missing(db_session):
     client = _client(db_session)
     resp = client.patch("/api/agents/9999", json={"name": "X"})
+    assert resp.status_code == 404
+
+
+def test_delete_agent_removes_agent_and_children(db_session):
+    client = _client(db_session)
+    created = client.post("/api/agents", json={"name": "Doomed", "duration_days": 7}).json()
+    aid = created["id"]
+    db_session.add_all([
+        Position(agent_id=aid, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100")),
+        Trade(agent_id=aid, symbol="BTCUSDT", side="BUY", quantity=Decimal("1"),
+              price=Decimal("100"), fee=Decimal("0.1")),
+        EquitySnapshot(agent_id=aid, equity_usd=Decimal("100")),
+        Event(agent_id=aid, kind="decision", message="hi"),
+        AgentMemory(agent_id=aid, section="coin_theses", content="BTC: bull"),
+    ])
+    db_session.commit()
+
+    resp = client.delete(f"/api/agents/{aid}")
+    assert resp.status_code == 204
+    assert db_session.get(AgentModel, aid) is None
+    assert db_session.query(Position).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(Trade).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(EquitySnapshot).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(Event).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(AgentMemory).filter_by(agent_id=aid).count() == 0
+
+
+def test_delete_agent_404_when_missing(db_session):
+    client = _client(db_session)
+    resp = client.delete("/api/agents/9999")
     assert resp.status_code == 404
