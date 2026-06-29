@@ -3,7 +3,7 @@ from uuid import uuid4
 from app.core.config import settings
 from app.db.models import EquitySnapshot, Event, AgentMemory
 from app.trading.engine import execute_buy, execute_sell
-from app.agents.strategy import decide_signal, guardrail_action
+from app.agents.strategy import guardrail_action
 from app.brain import decide as brain_decide_default
 from app.brain.context import build_context, MemoryView
 from app.brain.memory import run_reflection, ClosedTrade
@@ -24,33 +24,10 @@ async def run_heartbeat(session, agent, market) -> None:
     session.commit()
 
 
-async def run_decision(session, agent, market, symbols, buy_usd: Decimal, *,
+async def run_decision(session, agent, market, symbols, *,
                        brain_decide=brain_decide_default, reflect=run_reflection) -> None:
     cycle_id = uuid4().hex
-    if agent.strategy == "sma":
-        await _run_decision_sma(session, agent, market, symbols, buy_usd, cycle_id)
-    else:
-        await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id)
-
-
-async def _run_decision_sma(session, agent, market, symbols, buy_usd: Decimal, cycle_id: str) -> None:
-    held = {p.symbol: p for p in agent.positions}
-    actions = errors = 0
-    for symbol in symbols:
-        try:
-            closes = await market.get_klines(symbol, "1h", 50)
-            signal = decide_signal(closes)
-            if signal == "BUY" and agent.cash_usd >= buy_usd:
-                _bid, ask = await market.get_book_ticker(symbol)
-                execute_buy(session, agent, symbol, buy_usd, ask, cycle_id=cycle_id); actions += 1
-            elif signal == "SELL" and symbol in held:
-                bid, _ask = await market.get_book_ticker(symbol)
-                execute_sell(session, agent, symbol, held[symbol].quantity, bid, cycle_id=cycle_id); actions += 1
-        except Exception:
-            errors += 1
-    session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
-                      message=f"ciclo decisione (SMA): {actions} operazioni su {len(symbols)} simboli, {errors} errori"))
-    session.commit()
+    await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id)
 
 
 async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id: str) -> None:

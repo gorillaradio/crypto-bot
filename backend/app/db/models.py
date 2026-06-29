@@ -19,7 +19,6 @@ class Agent(Base):
     status: Mapped[str] = mapped_column(String(20), default="running")
     cash_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8))
     universe: Mapped[str] = mapped_column(String(20), default="TOP_100")
-    strategy: Mapped[str] = mapped_column(String(20), default="llm")
     model_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

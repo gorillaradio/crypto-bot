@@ -3,13 +3,12 @@ from decimal import Decimal
 from app.db.models import Agent, Position
 
 
-def test_agent_strategy_fields_default_and_persist(db_session):
+def test_agent_model_fields_persist(db_session):
     a = Agent(name="L", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"),
               model_provider="deepseek", model_name="deepseek-chat")
     db_session.add(a); db_session.commit()
     db_session.refresh(a)               # read back from DB, not identity map
-    assert a.strategy == "llm"          # default
     assert a.model_provider == "deepseek"
     assert a.model_name == "deepseek-chat"
 

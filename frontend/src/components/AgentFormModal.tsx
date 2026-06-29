@@ -12,14 +12,14 @@ export function AgentFormModal(props: Props) {
   const [name, setName] = useState(isEdit ? props.agent.name : "");
   const [instructions, setInstructions] = useState("");
   const [durationDays, setDurationDays] = useState(7);
-  const [strategy, setStrategy] = useState<"sma" | "llm">("llm");
   const [provider, setProvider] = useState<(typeof PROVIDERS)[number]>("anthropic");
   const [modelName, setModelName] = useState("");
   const [universe, setUniverse] = useState<"TOP_50" | "TOP_100">("TOP_100");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const valid = name.trim().length > 0 && durationDays >= 1;
+  const valid = name.trim().length > 0 &&
+    (isEdit || (durationDays >= 1 && modelName.trim().length > 0));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,9 +35,8 @@ export function AgentFormModal(props: Props) {
           name: name.trim(),
           instructions,
           duration_days: durationDays,
-          strategy,
-          model_provider: strategy === "llm" ? provider : null,
-          model_name: strategy === "llm" && modelName.trim() ? modelName.trim() : null,
+          model_provider: provider,
+          model_name: modelName.trim(),
           universe,
         };
         const a = await createAgent(payload);
@@ -68,26 +67,15 @@ export function AgentFormModal(props: Props) {
               <input id="agent-duration" type="number" min={1} value={durationDays}
                 onChange={(e) => setDurationDays(Number(e.target.value))} />
 
-              <label htmlFor="agent-strategy">Strategia</label>
-              <select id="agent-strategy" value={strategy}
-                onChange={(e) => setStrategy(e.target.value as "sma" | "llm")}>
-                <option value="llm">LLM</option>
-                <option value="sma">SMA</option>
+              <label htmlFor="agent-provider">Provider</label>
+              <select id="agent-provider" value={provider}
+                onChange={(e) => setProvider(e.target.value as (typeof PROVIDERS)[number])}>
+                {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
 
-              {strategy === "llm" && (
-                <>
-                  <label htmlFor="agent-provider">Provider</label>
-                  <select id="agent-provider" value={provider}
-                    onChange={(e) => setProvider(e.target.value as (typeof PROVIDERS)[number])}>
-                    {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
-
-                  <label htmlFor="agent-model">Modello</label>
-                  <input id="agent-model" value={modelName}
-                    onChange={(e) => setModelName(e.target.value)} placeholder="es. claude-opus-4-8" />
-                </>
-              )}
+              <label htmlFor="agent-model">Modello</label>
+              <input id="agent-model" value={modelName}
+                onChange={(e) => setModelName(e.target.value)} placeholder="es. claude-opus-4-8" />
 
               <label htmlFor="agent-universe">Universo</label>
               <select id="agent-universe" value={universe}
