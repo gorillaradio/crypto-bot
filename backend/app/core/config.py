@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     decision_seconds: int = 3600
     universe_default: str = "TOP_100"
 
+    # --- auth ---
+    admin_password: str = ""
+    secret_key: str = ""
+    session_https_only: bool = True
+    session_max_age_seconds: int = 1209600  # 14 days
+
     # --- brain v1 ---
     min_trade_usd: Decimal = Decimal("5")
 
