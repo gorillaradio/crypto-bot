@@ -9,6 +9,8 @@ import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
 import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
+import { AgentSidebar } from "./components/AgentSidebar";
+import { InstructionsBlock } from "./components/InstructionsBlock";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
 
@@ -47,6 +49,7 @@ export default function App() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
   const [modal, setModal] = useState<"create" | "edit" | "delete" | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     const load = () => getAgents().then(setAgents).catch(() => {});
@@ -73,6 +76,14 @@ export default function App() {
     return () => clearInterval(h);
   }, [selId]);
 
+  // Close the mobile sheet on Escape.
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setNavOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
   const reloadAgents = () => getAgents().then(setAgents).catch(() => {});
 
   const sel = useMemo(() => agents.find((a) => a.id === selId) ?? null, [agents, selId]);
@@ -80,80 +91,106 @@ export default function App() {
   const cashNum = sel ? Number(sel.cash_usd) : 0;
   const inPositions = Math.max(equityNum - cashNum, 0);
 
+  const selectAgent = (id: number) => {
+    setSelId(id);
+    setNavOpen(false);
+  };
+  const openCreate = () => {
+    setModal("create");
+    setNavOpen(false);
+  };
+
+  const sidebar = (
+    <AgentSidebar
+      agents={agents}
+      selId={selId}
+      onSelect={selectAgent}
+      onCreate={openCreate}
+    />
+  );
+
   return (
-    <div className="app">
-      <header className="topbar">
-        <span className="logo">crypto<b>·</b>bot</span>
-        <span className="live"><span className="dot" /> live</span>
-      </header>
+    <div className="shell">
+      <aside className="sidebar">{sidebar}</aside>
 
-      <section className="agents-bar">
-        {agents.map((a) => {
-          const ret = Number(a.return_pct);
-          return (
-            <button
-              key={a.id}
-              className={`agent-tile${a.id === selId ? " sel" : ""}`}
-              onClick={() => setSelId(a.id)}
-            >
-              <div className="name">{a.name}</div>
-              <div className="eq num">{usd(Number(a.equity))}</div>
-              <div className="ret"><Return pct={ret} /></div>
-            </button>
-          );
-        })}
-        <button className="agent-tile add" onClick={() => setModal("create")}>
-          + nuovo agente
-        </button>
-      </section>
+      <div
+        className={`sheet-backdrop${navOpen ? " open" : ""}`}
+        onClick={() => setNavOpen(false)}
+        aria-hidden="true"
+      />
+      <div className={`sheet${navOpen ? " open" : ""}`} role="dialog" aria-label="Agenti" aria-modal="true">
+        {sidebar}
+      </div>
 
-      {sel && (
-        <>
-          <section className="agent-header">
-            <h1>{sel.name}</h1>
-            {sel.instructions && <p className="instructions">{sel.instructions}</p>}
-            <span className="meta">
-              in corso da {elapsed(sel.duration_start)} · stato: {sel.status}
-            </span>
-            <div className="agent-actions">
-              <button className="btn-ghost" onClick={() => setModal("edit")}>modifica</button>
-              <button className="btn-ghost danger" onClick={() => setModal("delete")}>elimina</button>
-            </div>
-          </section>
+      <main className="main">
+        <header className="mobile-bar">
+          <button
+            className="hamburger"
+            onClick={() => setNavOpen(true)}
+            aria-label="Apri elenco agenti"
+            aria-expanded={navOpen}
+          >
+            <span /><span /><span />
+          </button>
+          <span className="logo">crypto<b>·</b>bot</span>
+          <span className="live"><span className="dot" /> live</span>
+        </header>
 
-          <section className="stats">
-            <Stat label="Valore">{usd(equityNum)}</Stat>
-            <Stat label="Rendimento"><Return pct={Number(sel.return_pct)} /></Stat>
-            <Stat label="Cash">{usd(cashNum)}</Stat>
-            <Stat label="In posizioni">{usd(inPositions)}</Stat>
-            <Stat label="Posizioni">{positions.length}</Stat>
-          </section>
-
-          <section className="card chart-card">
-            <div className="chart-head">
-              <span className="pct"><Return pct={Number(sel.return_pct)} /></span>
-              <span className="vs">equity vs investimento iniziale di $100</span>
-            </div>
-            <EquityChart data={equity} baseline={100} />
-          </section>
-
-          <div className="two-col">
-            <section className="card">
-              <h2>Posizioni</h2>
-              <PositionsTable positions={positions} />
+        {sel ? (
+          <>
+            <section className="agent-header">
+              <div className="agent-title">
+                <h1>{sel.name}</h1>
+                <div className="agent-actions">
+                  <button className="btn-ghost" onClick={() => setModal("edit")}>modifica</button>
+                  <button className="btn-ghost danger" onClick={() => setModal("delete")}>elimina</button>
+                </div>
+              </div>
+              {sel.instructions && <InstructionsBlock text={sel.instructions} />}
+              <span className="meta">
+                in corso da {elapsed(sel.duration_start)} · stato: {sel.status}
+              </span>
             </section>
-            <section className="card">
-              <h2>Attività</h2>
-              <EventsFeed events={events} />
-            </section>
-          </div>
 
-          <section className="card">
-            <h2>Memoria</h2>
-            {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
+            <section className="stats">
+              <Stat label="Valore">{usd(equityNum)}</Stat>
+              <Stat label="Rendimento"><Return pct={Number(sel.return_pct)} /></Stat>
+              <Stat label="Cash">{usd(cashNum)}</Stat>
+              <Stat label="In posizioni">{usd(inPositions)}</Stat>
+              <Stat label="Posizioni">{positions.length}</Stat>
+            </section>
+
+            <section className="card chart-card">
+              <div className="chart-head">
+                <span className="pct"><Return pct={Number(sel.return_pct)} /></span>
+                <span className="vs">equity vs investimento iniziale di $100</span>
+              </div>
+              <EquityChart data={equity} baseline={100} />
+            </section>
+
+            <div className="two-col">
+              <section className="card">
+                <h2>Posizioni</h2>
+                <PositionsTable positions={positions} />
+              </section>
+              <section className="card">
+                <h2>Attività</h2>
+                <EventsFeed events={events} />
+              </section>
+            </div>
+
+            <section className="card">
+              <h2>Memoria</h2>
+              {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
+            </section>
+          </>
+        ) : (
+          <section className="card empty-state">
+            <p className="empty">Nessun agente ancora. Creane uno per iniziare l'esperimento.</p>
+            <button className="btn-primary" onClick={() => setModal("create")}>+ nuovo agente</button>
           </section>
-        </>
-      )}
+        )}
+      </main>
 
       {modal === "create" && (
         <AgentFormModal

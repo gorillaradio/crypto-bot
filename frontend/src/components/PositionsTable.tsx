@@ -1,4 +1,5 @@
 import type { Position } from "../api";
+import { Sparkline } from "./Sparkline";
 
 const usd = (s: string | number) =>
   `$${Number(s).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
@@ -19,25 +20,31 @@ export function PositionsTable({ positions }: { positions: Position[] }) {
     return <p className="empty">Nessuna posizione aperta — tutto il capitale è in cash.</p>;
 
   return (
-    <table className="ptable num">
-      <thead>
-        <tr>
-          <th>Coin</th>
-          <th>Quantità</th>
-          <th>Prezzo medio</th>
-          <th>Costo</th>
-        </tr>
-      </thead>
-      <tbody>
-        {positions.map((p) => (
-          <tr key={p.symbol}>
-            <td>{p.symbol.replace(/USDT$/, "")}</td>
-            <td>{qty(p.quantity)}</td>
-            <td>{price(p.avg_price)}</td>
-            <td>{usd(p.cost_basis)}</td>
+    <div className="table-wrap">
+      <table className="ptable num">
+        <thead>
+          <tr>
+            <th>Coin</th>
+            <th className="th-spark">Andamento 24h</th>
+            <th>Quantità</th>
+            <th>Prezzo medio</th>
+            <th>Costo</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {positions.map((p) => (
+            <tr key={p.symbol}>
+              <td className="coin">{p.symbol.replace(/USDT$/, "")}</td>
+              <td className="td-spark">
+                <Sparkline symbol={p.symbol} />
+              </td>
+              <td>{qty(p.quantity)}</td>
+              <td>{price(p.avg_price)}</td>
+              <td>{usd(p.cost_basis)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

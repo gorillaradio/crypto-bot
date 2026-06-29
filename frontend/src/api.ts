@@ -61,3 +61,21 @@ export const updateAgent = (id: number, input: { name: string }) =>
   mutate<Agent>(`/api/agents/${id}`, "PATCH", input);
 export const deleteAgent = (id: number) =>
   mutate<void>(`/api/agents/${id}`, "DELETE");
+
+// Recent hourly closes for a coin's sparkline — fetched straight from Binance's
+// public, CORS-enabled klines endpoint (no backend involvement). Cached briefly
+// so the 15s dashboard poll doesn't hammer it.
+const klineCache = new Map<string, { ts: number; closes: number[] }>();
+const KLINE_TTL = 5 * 60 * 1000;
+
+export async function getKlines(symbol: string, hours = 24): Promise<number[]> {
+  const cached = klineCache.get(symbol);
+  if (cached && Date.now() - cached.ts < KLINE_TTL) return cached.closes;
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=${hours}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`klines ${symbol} → ${r.status}`);
+  const rows: unknown[][] = await r.json();
+  const closes = rows.map((row) => Number(row[4])); // index 4 = close
+  klineCache.set(symbol, { ts: Date.now(), closes });
+  return closes;
+}
