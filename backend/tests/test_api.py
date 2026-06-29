@@ -158,3 +158,18 @@ def test_create_agent_rejects_invalid_universe(db_session):
     resp = client.post("/api/agents", json={
         "name": "Bad", "duration_days": 7, "universe": "TOP_500"})
     assert resp.status_code == 422
+
+
+def test_patch_agent_renames(db_session):
+    client = _client(db_session)
+    created = client.post("/api/agents", json={"name": "Old", "duration_days": 7}).json()
+    resp = client.patch(f"/api/agents/{created['id']}", json={"name": "New"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "New"
+    assert db_session.get(AgentModel, created["id"]).name == "New"
+
+
+def test_patch_agent_404_when_missing(db_session):
+    client = _client(db_session)
+    resp = client.patch("/api/agents/9999", json={"name": "X"})
+    assert resp.status_code == 404

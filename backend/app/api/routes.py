@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.db.base import SessionLocal
 from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position
-from app.api.schemas import AgentCreate, AgentOut, EquityPoint, EventOut, MemoryOut, PositionOut
+from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, EquityPoint, EventOut, MemoryOut, PositionOut
 
 router = APIRouter(prefix="/api")
 
@@ -74,6 +74,17 @@ def get_agent(agent_id: int, session=Depends(session_dep)):
     agent = session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(404, "agent not found")
+    return _agent_out(session, agent)
+
+
+@router.patch("/agents/{agent_id}", response_model=AgentOut)
+def update_agent(agent_id: int, payload: AgentUpdate, session=Depends(session_dep)):
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "agent not found")
+    agent.name = payload.name
+    session.commit()
+    session.refresh(agent)
     return _agent_out(session, agent)
 
 
