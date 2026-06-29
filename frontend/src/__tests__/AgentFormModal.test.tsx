@@ -38,6 +38,22 @@ describe("AgentFormModal create", () => {
     expect(vi.mocked(createAgent).mock.calls[0][0]).toMatchObject({ name: "Alpha" });
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
+
+  it("sends null model fields when strategy is sma", async () => {
+    const onSaved = vi.fn();
+    vi.mocked(createAgent).mockResolvedValue({ id: 2, name: "SMA Agent" } as never);
+    render(<AgentFormModal mode="create" onClose={() => {}} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText(/nome/i), { target: { value: "SMA Agent" } });
+    fireEvent.change(screen.getByLabelText(/strategia/i), { target: { value: "sma" } });
+    fireEvent.click(screen.getByRole("button", { name: /crea/i }));
+    await waitFor(() => expect(createAgent).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createAgent).mock.calls[0][0]).toMatchObject({
+      strategy: "sma",
+      model_provider: null,
+      model_name: null,
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
 });
 
 describe("AgentFormModal edit", () => {
