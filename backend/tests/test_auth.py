@@ -61,3 +61,54 @@ def test_viewer_exchange_valid_token(client, db_session):
 def test_viewer_exchange_invalid_token_401(client):
     assert client.post("/api/auth/viewer", json={"token": "ghost"}).status_code == 401
     assert client.get("/api/auth/me").json() == {"role": None}
+
+
+from fastapi.testclient import TestClient as _TC
+
+_AGENT = {"name": "A", "instructions": "", "duration_days": 7,
+          "model_name": "deepseek/deepseek-v4-flash"}
+
+
+def test_writes_require_admin(client, db_session):
+    assert client.post("/api/agents", json=_AGENT).status_code == 401
+    db_session.add(ShareLink(token="v1")); db_session.commit()
+    client.post("/api/auth/viewer", json={"token": "v1"})
+    assert client.post("/api/agents", json=_AGENT).status_code == 401   # viewer cannot write
+    client.post("/api/auth/login", json={"password": "secret"})
+    assert client.post("/api/agents", json=_AGENT).status_code == 201   # admin can
+
+
+def test_reads_require_a_session(client, db_session):
+    assert client.get("/api/agents").status_code == 401
+    db_session.add(ShareLink(token="v2")); db_session.commit()
+    client.post("/api/auth/viewer", json={"token": "v2"})
+    assert client.get("/api/agents").status_code == 200                 # viewer can read
+
+
+def test_share_links_are_admin_only(client):
+    assert client.get("/api/share-links").status_code == 401
+    client.post("/api/auth/login", json={"password": "secret"})
+    created = client.post("/api/share-links", json={"label": "amici"})
+    assert created.status_code == 201
+    body = created.json()
+    assert body["url"].endswith("#" + body["token"])
+    assert any(l["token"] == body["token"] for l in client.get("/api/share-links").json())
+
+
+def test_revoke_blocks_viewer_immediately(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "admin_password", "secret")
+    app.dependency_overrides[auth.session_dep] = lambda: db_session
+    admin = _TC(app, base_url="https://testserver")
+    viewer = _TC(app, base_url="https://testserver")
+    admin.post("/api/auth/login", json={"password": "secret"})
+    link = admin.post("/api/share-links", json={}).json()
+    viewer.post("/api/auth/viewer", json={"token": link["token"]})
+    assert viewer.get("/api/agents").status_code == 200
+    assert admin.delete(f"/api/share-links/{link['id']}").status_code == 204
+    assert viewer.get("/api/agents").status_code == 401                 # revoke is immediate
+    assert viewer.get("/api/auth/me").json() == {"role": None}
+
+
+def test_delete_missing_share_link_404(client):
+    client.post("/api/auth/login", json={"password": "secret"})
+    assert client.delete("/api/share-links/9999").status_code == 404

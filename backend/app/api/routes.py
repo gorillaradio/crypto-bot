@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
-from app.api.auth import session_dep
+from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position, Trade
 from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, EquityPoint, EventOut, MemoryOut, PositionOut
 
@@ -37,7 +37,7 @@ def _agent_out(session, agent: Agent) -> AgentOut:
 
 
 @router.post("/agents", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
-def create_agent(payload: AgentCreate, session=Depends(session_dep)):
+def create_agent(payload: AgentCreate, session=Depends(session_dep), _: str = Depends(require_admin)):
     now = datetime.now(timezone.utc)
     agent = Agent(
         name=payload.name,
@@ -55,12 +55,12 @@ def create_agent(payload: AgentCreate, session=Depends(session_dep)):
 
 
 @router.get("/agents", response_model=list[AgentOut])
-def list_agents(session=Depends(session_dep)):
+def list_agents(session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
     return [_agent_out(session, a) for a in session.query(Agent).all()]
 
 
 @router.get("/agents/{agent_id}", response_model=AgentOut)
-def get_agent(agent_id: int, session=Depends(session_dep)):
+def get_agent(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
     agent = session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(404, "agent not found")
@@ -68,7 +68,7 @@ def get_agent(agent_id: int, session=Depends(session_dep)):
 
 
 @router.patch("/agents/{agent_id}", response_model=AgentOut)
-def update_agent(agent_id: int, payload: AgentUpdate, session=Depends(session_dep)):
+def update_agent(agent_id: int, payload: AgentUpdate, session=Depends(session_dep), _: str = Depends(require_admin)):
     agent = session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(404, "agent not found")
@@ -79,7 +79,7 @@ def update_agent(agent_id: int, payload: AgentUpdate, session=Depends(session_de
 
 
 @router.delete("/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_agent(agent_id: int, session=Depends(session_dep)):
+def delete_agent(agent_id: int, session=Depends(session_dep), _: str = Depends(require_admin)):
     agent = session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(404, "agent not found")
@@ -90,7 +90,7 @@ def delete_agent(agent_id: int, session=Depends(session_dep)):
 
 
 @router.get("/agents/{agent_id}/positions", response_model=list[PositionOut])
-def get_positions(agent_id: int, session=Depends(session_dep)):
+def get_positions(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
     rows = session.query(Position).filter_by(agent_id=agent_id).all()
     return [
         PositionOut(
@@ -104,7 +104,7 @@ def get_positions(agent_id: int, session=Depends(session_dep)):
 
 
 @router.get("/agents/{agent_id}/equity", response_model=list[EquityPoint])
-def get_equity(agent_id: int, session=Depends(session_dep)):
+def get_equity(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
     rows = (
         session.query(EquitySnapshot)
         .filter_by(agent_id=agent_id)
@@ -115,7 +115,7 @@ def get_equity(agent_id: int, session=Depends(session_dep)):
 
 
 @router.get("/agents/{agent_id}/memory", response_model=MemoryOut)
-def get_memory(agent_id: int, session=Depends(session_dep)):
+def get_memory(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
     rows = {r.section: r.content for r in
             session.query(AgentMemory).filter_by(agent_id=agent_id).all()}
     return MemoryOut(
@@ -126,7 +126,7 @@ def get_memory(agent_id: int, session=Depends(session_dep)):
 
 
 @router.get("/agents/{agent_id}/events", response_model=list[EventOut])
-def get_events(agent_id: int, session=Depends(session_dep)):
+def get_events(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
     return (
         session.query(Event)
         .filter_by(agent_id=agent_id)

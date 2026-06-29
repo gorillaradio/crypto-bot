@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
-from app.api import routes
+from app.api import routes, auth
 from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, Trade, Event, AgentMemory
 
 
@@ -15,6 +15,8 @@ def _clear_overrides():
 
 def _client(db_session):
     app.dependency_overrides[routes.session_dep] = lambda: db_session
+    app.dependency_overrides[auth.require_admin] = lambda: "admin"
+    app.dependency_overrides[auth.require_viewer_or_admin] = lambda: "admin"
     return TestClient(app)
 
 

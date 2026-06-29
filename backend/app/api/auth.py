@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.core.config import settings
 from app.db.base import SessionLocal
 from app.db.models import ShareLink
-from app.api.schemas import LoginIn, ViewerIn, MeOut
+from app.api.schemas import LoginIn, ViewerIn, MeOut, ShareLinkIn, ShareLinkOut
 
 router = APIRouter(prefix="/api")
 
@@ -70,3 +70,35 @@ def viewer(payload: ViewerIn, request: Request, session=Depends(session_dep)):
     request.session["role"] = "viewer"
     request.session["link_id"] = link.id
     return MeOut(role="viewer")
+
+
+def _link_out(request: Request, link: ShareLink) -> ShareLinkOut:
+    return ShareLinkOut(
+        id=link.id, label=link.label, token=link.token,
+        url=f"{request.base_url}#{link.token}", created_at=link.created_at,
+    )
+
+
+@router.get("/share-links", response_model=list[ShareLinkOut])
+def list_share_links(request: Request, _: str = Depends(require_admin), session=Depends(session_dep)):
+    rows = session.query(ShareLink).order_by(ShareLink.created_at.desc()).all()
+    return [_link_out(request, link) for link in rows]
+
+
+@router.post("/share-links", response_model=ShareLinkOut, status_code=status.HTTP_201_CREATED)
+def create_share_link(payload: ShareLinkIn, request: Request,
+                      _: str = Depends(require_admin), session=Depends(session_dep)):
+    link = ShareLink(label=payload.label, token=secrets.token_urlsafe(32))
+    session.add(link)
+    session.commit()
+    session.refresh(link)
+    return _link_out(request, link)
+
+
+@router.delete("/share-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_share_link(link_id: int, _: str = Depends(require_admin), session=Depends(session_dep)):
+    link = session.get(ShareLink, link_id)
+    if link is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "link not found")
+    session.delete(link)
+    session.commit()
