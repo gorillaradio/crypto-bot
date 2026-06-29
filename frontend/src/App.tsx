@@ -109,7 +109,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       onSelect={selectAgent}
       onCreate={isAdmin ? openCreate : undefined}
       onShare={isAdmin ? () => { setModal("share"); setNavOpen(false); } : undefined}
-      onLogout={doLogout}
+      onLogout={isAdmin ? doLogout : undefined}
     />
   );
 
