@@ -22,15 +22,21 @@ async def _heartbeat_tick():
                 session.rollback()
 
 
+def _universe_size(agent: Agent) -> int:
+    return 100 if agent.universe == "TOP_100" else 50
+
+
 async def _decision_tick():
     market = BinanceClient()
-    n = 100 if settings.universe_default == "TOP_100" else 50
-    symbols = await market.get_top_symbols("USDT", n)
+    symbols_cache: dict[int, list[str]] = {}
     with get_session() as session:
         for agent in session.query(Agent).filter_by(status="running").all():
             try:
+                n = _universe_size(agent)
+                if n not in symbols_cache:
+                    symbols_cache[n] = await market.get_top_symbols("USDT", n)
                 buy_usd = settings.initial_capital_usd / Decimal("10")
-                await run_decision(session, agent, market, symbols, buy_usd)
+                await run_decision(session, agent, market, symbols_cache[n], buy_usd)
             except Exception as exc:
                 logger.error("decision tick failed for agent %s: %s", agent.id, exc)
                 session.rollback()
