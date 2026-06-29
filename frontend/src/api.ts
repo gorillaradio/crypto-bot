@@ -36,3 +36,30 @@ export const getEquity = (id: number) => get<EquityPoint[]>(`/api/agents/${id}/e
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
+
+export type AgentCreateInput = {
+  name: string;
+  instructions: string;
+  duration_days: number;
+  strategy: "sma" | "llm";
+  model_provider: "anthropic" | "deepseek" | "glm" | "openrouter" | null;
+  model_name: string | null;
+  universe: "TOP_50" | "TOP_100";
+};
+
+async function mutate<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${path} → ${r.status}`);
+  return r.status === 204 ? (undefined as T) : r.json();
+}
+
+export const createAgent = (input: AgentCreateInput) =>
+  mutate<Agent>("/api/agents", "POST", input);
+export const updateAgent = (id: number, input: { name: string }) =>
+  mutate<Agent>(`/api/agents/${id}`, "PATCH", input);
+export const deleteAgent = (id: number) =>
+  mutate<void>(`/api/agents/${id}`, "DELETE");
