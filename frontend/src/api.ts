@@ -41,9 +41,7 @@ export type AgentCreateInput = {
   name: string;
   instructions: string;
   duration_days: number;
-  strategy: "sma" | "llm";
-  model_provider: "anthropic" | "deepseek" | "glm" | "openrouter" | null;
-  model_name: string | null;
+  model_name: string;
   universe: "TOP_50" | "TOP_100";
 };
 

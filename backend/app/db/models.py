@@ -19,8 +19,9 @@ class Agent(Base):
     status: Mapped[str] = mapped_column(String(20), default="running")
     cash_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8))
     universe: Mapped[str] = mapped_column(String(20), default="TOP_100")
-    strategy: Mapped[str] = mapped_column(String(20), default="llm")
-    model_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Every agent runs through the OpenRouter gateway; the model is chosen via model_name
+    # (a "vendor/model" slug, e.g. "deepseek/deepseek-v4-flash").
+    model_provider: Mapped[str] = mapped_column(String(40), default="openrouter")
     model_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

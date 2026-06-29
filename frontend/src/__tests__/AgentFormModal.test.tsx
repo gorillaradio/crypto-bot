@@ -14,43 +14,32 @@ beforeEach(() => {
 });
 
 describe("AgentFormModal create", () => {
-  it("disables submit until a name is entered", () => {
+  it("keeps submit disabled until name AND model are filled", () => {
     render(<AgentFormModal mode="create" onClose={() => {}} onSaved={() => {}} />);
     const submit = screen.getByRole("button", { name: /crea/i });
     expect(submit).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/nome/i), { target: { value: "Alpha" } });
+    expect(submit).toBeDisabled();                              // model still empty
+    fireEvent.change(screen.getByLabelText(/modello/i), { target: { value: "claude-opus-4-8" } });
     expect(submit).not.toBeDisabled();
   });
 
-  it("hides model fields when strategy is sma", () => {
+  it("always shows the model field", () => {
     render(<AgentFormModal mode="create" onClose={() => {}} onSaved={() => {}} />);
-    fireEvent.change(screen.getByLabelText(/strategia/i), { target: { value: "sma" } });
-    expect(screen.queryByLabelText(/provider/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/modello/i)).toBeInTheDocument();
   });
 
-  it("submits the form payload to createAgent", async () => {
+  it("submits the form payload (with model slug) to createAgent", async () => {
     const onSaved = vi.fn();
     vi.mocked(createAgent).mockResolvedValue({ id: 1, name: "Alpha" } as never);
     render(<AgentFormModal mode="create" onClose={() => {}} onSaved={onSaved} />);
     fireEvent.change(screen.getByLabelText(/nome/i), { target: { value: "Alpha" } });
-    fireEvent.click(screen.getByRole("button", { name: /crea/i }));
-    await waitFor(() => expect(createAgent).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(createAgent).mock.calls[0][0]).toMatchObject({ name: "Alpha" });
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-  });
-
-  it("sends null model fields when strategy is sma", async () => {
-    const onSaved = vi.fn();
-    vi.mocked(createAgent).mockResolvedValue({ id: 2, name: "SMA Agent" } as never);
-    render(<AgentFormModal mode="create" onClose={() => {}} onSaved={onSaved} />);
-    fireEvent.change(screen.getByLabelText(/nome/i), { target: { value: "SMA Agent" } });
-    fireEvent.change(screen.getByLabelText(/strategia/i), { target: { value: "sma" } });
+    fireEvent.change(screen.getByLabelText(/modello/i), { target: { value: "deepseek/deepseek-v4-flash" } });
     fireEvent.click(screen.getByRole("button", { name: /crea/i }));
     await waitFor(() => expect(createAgent).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createAgent).mock.calls[0][0]).toMatchObject({
-      strategy: "sma",
-      model_provider: null,
-      model_name: null,
+      name: "Alpha",
+      model_name: "deepseek/deepseek-v4-flash",
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
@@ -64,7 +53,7 @@ describe("AgentFormModal edit", () => {
       cash_usd: "100", equity: "100", return_pct: "0",
       duration_start: "", duration_end: "" };
     render(<AgentFormModal mode="edit" agent={agent} onClose={() => {}} onSaved={onSaved} />);
-    expect(screen.queryByLabelText(/strategia/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/modello/i)).not.toBeInTheDocument();   // edit shows name only
     fireEvent.change(screen.getByLabelText(/nome/i), { target: { value: "Renamed" } });
     fireEvent.click(screen.getByRole("button", { name: /salva/i }));
     await waitFor(() => expect(updateAgent).toHaveBeenCalledWith(2, { name: "Renamed" }));

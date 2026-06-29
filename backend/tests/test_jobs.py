@@ -26,7 +26,7 @@ async def test_decision_tick_uses_per_agent_universe(db_session, monkeypatch):
             fetched[n] = fetched.get(n, 0) + 1
             return [f"SYM{n}"]
 
-    async def fake_run_decision(session, agent, market, symbols, buy_usd, **kw):
+    async def fake_run_decision(session, agent, market, symbols, **kw):
         passed[agent.name] = symbols
 
     @contextmanager

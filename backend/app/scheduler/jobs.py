@@ -1,5 +1,4 @@
 import logging
-from decimal import Decimal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import settings
 from app.db.base import get_session
@@ -35,8 +34,7 @@ async def _decision_tick():
                 n = _universe_size(agent)
                 if n not in symbols_cache:
                     symbols_cache[n] = await market.get_top_symbols("USDT", n)
-                buy_usd = settings.initial_capital_usd / Decimal("10")
-                await run_decision(session, agent, market, symbols_cache[n], buy_usd)
+                await run_decision(session, agent, market, symbols_cache[n])
             except Exception as exc:
                 logger.error("decision tick failed for agent %s: %s", agent.id, exc)
                 session.rollback()

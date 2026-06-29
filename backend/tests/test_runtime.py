@@ -7,25 +7,10 @@ from app.brain.schema import Decision, Action
 
 
 class FakeMarket:
-    def __init__(self, price, book, closes):
-        self._price, self._book, self._closes = price, book, closes
+    def __init__(self, price, book):
+        self._price, self._book = price, book
     async def get_price(self, symbol): return self._price
     async def get_book_ticker(self, symbol): return self._book
-    async def get_klines(self, symbol, interval, limit): return self._closes
-
-
-class FakeMarketPartialError:
-    """Returns closes for known symbols; raises RuntimeError for others."""
-    def __init__(self, closes_by_symbol, book):
-        self._closes_by_symbol = closes_by_symbol
-        self._book = book
-
-    async def get_price(self, symbol): return Decimal("100")
-    async def get_book_ticker(self, symbol): return self._book
-    async def get_klines(self, symbol, interval, limit):
-        if symbol not in self._closes_by_symbol:
-            raise RuntimeError(f"network error for {symbol}")
-        return self._closes_by_symbol[symbol]
 
 
 class FakeMarketLLM:
@@ -39,7 +24,7 @@ class FakeMarketLLM:
 def _agent(session, cash="100"):
     a = Agent(name="R", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal(cash), strategy="sma")
+              cash_usd=Decimal(cash))
     session.add(a); session.commit()
     return a
 
@@ -47,15 +32,15 @@ def _agent(session, cash="100"):
 def _llm_agent(session):
     a = Agent(name="B", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal("100"), strategy="llm",
-              model_provider="deepseek", model_name="deepseek-chat")
+              cash_usd=Decimal("100"),
+              model_provider="openrouter", model_name="deepseek/deepseek-v4-flash")
     session.add(a); session.commit()
     return a
 
 
 async def test_heartbeat_writes_equity_snapshot(db_session):
     agent = _agent(db_session, "100")
-    market = FakeMarket(price=Decimal("100"), book=(Decimal("99"), Decimal("101")), closes=[])
+    market = FakeMarket(price=Decimal("100"), book=(Decimal("99"), Decimal("101")))
     await run_heartbeat(db_session, agent, market)
     snap = db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).one()
     assert snap.equity_usd == Decimal("100")  # solo cash, nessuna posizione
@@ -67,7 +52,7 @@ async def test_heartbeat_sells_on_stop_loss(db_session):
                             quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.commit()
     # last price 80 → -20% → stop loss → vende al bid 80
-    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")), closes=[])
+    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")))
     await run_heartbeat(db_session, agent, market)
     trades = db_session.query(Trade).filter_by(agent_id=agent.id, side="SELL").all()
     assert len(trades) == 1
@@ -79,40 +64,10 @@ async def test_heartbeat_equity_includes_sell_proceeds(db_session):
                             quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.commit()
     # last price 80 → -20% → stop loss → sells at bid 80, fee 0.1% → cash = 79.92
-    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")), closes=[])
+    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")))
     await run_heartbeat(db_session, agent, market)
     snap = db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).one()
     assert snap.equity_usd == Decimal("79.92")
-
-
-async def test_decision_buys_on_bullish_signal(db_session):
-    agent = _agent(db_session, "100")
-    closes = [Decimal("10")] * 19 + [Decimal("5"), Decimal("100")]
-    market = FakeMarket(price=Decimal("100"), book=(Decimal("99"), Decimal("101")), closes=closes)
-    await run_decision(db_session, agent, market, symbols=["BTCUSDT"], buy_usd=Decimal("50"))
-    buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
-    assert len(buys) == 1
-
-
-async def test_decision_error_isolation_skips_bad_symbol(db_session):
-    """A symbol that raises on get_klines is skipped; the good symbol still trades."""
-    agent = _agent(db_session, "200")
-    bullish_closes = [Decimal("10")] * 19 + [Decimal("5"), Decimal("100")]
-    market = FakeMarketPartialError(
-        closes_by_symbol={"ETHUSDT": bullish_closes},
-        book=(Decimal("99"), Decimal("101")),
-    )
-    await run_decision(
-        db_session, agent, market,
-        symbols=["BADUSDT", "ETHUSDT"],
-        buy_usd=Decimal("50"),
-    )
-    buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
-    assert len(buys) == 1
-    assert buys[0].symbol == "ETHUSDT"
-    event = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
-    assert event is not None
-    assert "1 errori" in event.message
 
 
 async def test_llm_path_executes_buy_with_guardrails(db_session):
@@ -124,7 +79,7 @@ async def test_llm_path_executes_buy_with_guardrails(db_session):
         Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("2"), rationale="too small"),   # < min_trade
         Action(type="BUY", symbol="NOTINUNIVERSE", usd_amount=Decimal("10"), rationale="x"),     # not in universe
     ], note="testing")
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: decision)
     buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
     assert len(buys) == 1                            # only the valid $50 buy
@@ -142,7 +97,7 @@ async def test_llm_all_in_buy_clamps_for_fee_and_executes(db_session):
     decision = Decision(actions=[
         Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("100"), rationale="all-in"),
     ], note="fomo")
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: decision)
     buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
     assert len(buys) == 1                            # the all-in executed
@@ -164,7 +119,7 @@ async def test_llm_data_gathering_error_writes_event_no_trade(db_session):
             raise RuntimeError("network timeout")
 
     market = FakeMarketLLMBroken()
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"))
+    await run_decision(db_session, agent, market, ["BTCUSDT"])
     trades = db_session.query(Trade).filter_by(agent_id=agent.id).all()
     assert len(trades) == 0
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
@@ -180,7 +135,7 @@ async def test_llm_path_sells_held_fraction(db_session):
     snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
     market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
     decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("0.5"))], note="trim")
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: decision)
     pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
     assert pos.quantity == Decimal("0.5")
@@ -197,7 +152,7 @@ async def test_llm_buy_then_sell_same_symbol_same_cycle(db_session):
         Action(type="BUY",  symbol="NEWUSDT", usd_amount=Decimal("50"), rationale="open"),
         Action(type="SELL", symbol="NEWUSDT", fraction=Decimal("1"),    rationale="close"),
     ], note="buy-then-sell")
-    await run_decision(db_session, agent, market, ["NEWUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["NEWUSDT"],
                        brain_decide=lambda ctx, adapter: decision)
     # Both the BUY and the SELL should have executed
     buys  = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
@@ -223,7 +178,7 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
         calls.append(closed)
         return MemoryView(coin_theses="BTC: took profit", trade_lessons="green exit")
 
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: decision, reflect=fake_reflect)
 
     assert len(calls) == 1                       # exactly one reflection call
@@ -244,7 +199,7 @@ async def test_decision_events_share_one_cycle_id(db_session):
     decision = Decision(actions=[
         Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"), rationale="dip"),
     ], note="in")
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: decision)
     events = db_session.query(Event).filter_by(agent_id=agent.id).all()
     kinds = {e.kind for e in events}
@@ -259,7 +214,7 @@ async def test_two_cycles_get_distinct_cycle_ids(db_session):
     market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
     decision = Decision(actions=[], note="hold")
     for _ in range(2):
-        await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+        await run_decision(db_session, agent, market, ["BTCUSDT"],
                            brain_decide=lambda ctx, adapter: decision)
     ids = [e.cycle_id for e in db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").all()]
     assert len(ids) == 2 and ids[0] != ids[1]
@@ -272,7 +227,7 @@ async def test_heartbeat_sell_event_has_no_cycle_id(db_session):
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.commit()
-    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")), closes=[])
+    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")))
     await run_heartbeat(db_session, agent, market)
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="trade").one()
     assert ev.cycle_id is None
@@ -284,7 +239,7 @@ async def test_no_reflection_when_no_sell(db_session):
     market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
     decision = Decision(actions=[Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"))], note="in")
     calls = []
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: decision,
                        reflect=lambda *a, **k: calls.append(1) or MemoryView())
     assert calls == []
@@ -304,7 +259,7 @@ async def test_reflection_failure_is_isolated(db_session):
     def boom(*a, **k):
         raise RuntimeError("provider down")
 
-    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: decision, reflect=boom)
 
     # existing memory untouched
