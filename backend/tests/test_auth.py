@@ -63,8 +63,6 @@ def test_viewer_exchange_invalid_token_401(client):
     assert client.get("/api/auth/me").json() == {"role": None}
 
 
-from fastapi.testclient import TestClient as _TC
-
 _AGENT = {"name": "A", "instructions": "", "duration_days": 7,
           "model_name": "deepseek/deepseek-v4-flash"}
 
@@ -98,8 +96,8 @@ def test_share_links_are_admin_only(client):
 def test_revoke_blocks_viewer_immediately(db_session, monkeypatch):
     monkeypatch.setattr(settings, "admin_password", "secret")
     app.dependency_overrides[auth.session_dep] = lambda: db_session
-    admin = _TC(app, base_url="https://testserver")
-    viewer = _TC(app, base_url="https://testserver")
+    admin = TestClient(app, base_url="https://testserver")
+    viewer = TestClient(app, base_url="https://testserver")
     admin.post("/api/auth/login", json={"password": "secret"})
     link = admin.post("/api/share-links", json={}).json()
     viewer.post("/api/auth/viewer", json={"token": link["token"]})
