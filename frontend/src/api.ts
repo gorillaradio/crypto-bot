@@ -12,7 +12,7 @@ export type Agent = {
   duration_end: string;
 };
 export type EquityPoint = { timestamp: string; equity_usd: string };
-export type AgentEvent = { timestamp: string; kind: string; message: string };
+export type AgentEvent = { timestamp: string; kind: string; message: string; cycle_id: string | null };
 export type Position = {
   symbol: string;
   quantity: string;

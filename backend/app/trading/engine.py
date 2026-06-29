@@ -20,7 +20,8 @@ def _get_position(session, agent_id, symbol):
     return session.query(Position).filter_by(agent_id=agent_id, symbol=symbol).first()
 
 
-def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: Decimal) -> Trade:
+def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: Decimal,
+                cycle_id: str | None = None) -> Trade:
     notional = usd_amount
     fee = notional * settings.fee_rate
     total_cost = notional + fee
@@ -41,13 +42,14 @@ def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: De
     trade = Trade(agent_id=agent.id, symbol=symbol, side="BUY",
                   quantity=quantity, price=ask, fee=fee)
     session.add(trade)
-    session.add(Event(agent_id=agent.id, kind="trade",
+    session.add(Event(agent_id=agent.id, kind="trade", cycle_id=cycle_id,
                       message=f"BUY {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(ask)} (fee ${_fmt_price(fee)})"))
     session.commit()
     return trade
 
 
-def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Decimal) -> Trade:
+def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Decimal,
+                 cycle_id: str | None = None) -> Trade:
     pos = _get_position(session, agent.id, symbol)
     if pos is None or quantity > pos.quantity:
         raise ValueError("quantità insufficiente")
@@ -62,7 +64,7 @@ def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Dec
     trade = Trade(agent_id=agent.id, symbol=symbol, side="SELL",
                   quantity=quantity, price=bid, fee=fee)
     session.add(trade)
-    session.add(Event(agent_id=agent.id, kind="trade",
+    session.add(Event(agent_id=agent.id, kind="trade", cycle_id=cycle_id,
                       message=f"SELL {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(bid)} (fee ${_fmt_price(fee)})"))
     session.commit()
     return trade

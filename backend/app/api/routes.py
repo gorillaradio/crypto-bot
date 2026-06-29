@@ -118,7 +118,7 @@ def get_events(agent_id: int, session=Depends(session_dep)):
     return (
         session.query(Event)
         .filter_by(agent_id=agent_id)
-        .order_by(Event.timestamp.desc())
+        .order_by(Event.timestamp.desc(), Event.id.desc())
         .limit(100)
         .all()
     )

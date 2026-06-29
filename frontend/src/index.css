@@ -6,7 +6,7 @@
   --border: oklch(0.30 0.014 260);
   --ink: oklch(0.94 0.008 260);
   --muted: oklch(0.70 0.014 260);
-  --faint: oklch(0.52 0.012 260);
+  --faint: oklch(0.62 0.012 260);
 
   --accent: oklch(0.82 0.13 76);          /* warm amber */
   --accent-ink: oklch(0.22 0.05 76);
@@ -106,7 +106,7 @@ h1, h2, h3 { font-weight: 600; color: var(--ink); margin: 0; letter-spacing: -0.
 .chart-head .pct { font-size: 20px; }
 .chart-head .vs { color: var(--faint); font-size: 13px; }
 
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
 @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
 
 /* ---- positions table ---- */
@@ -115,18 +115,35 @@ h1, h2, h3 { font-weight: 600; color: var(--ink); margin: 0; letter-spacing: -0.
 .ptable th:first-child { text-align: left; }
 .ptable td { padding: 8px 0; border-top: 1px solid var(--border); text-align: right; }
 .ptable td:first-child { text-align: left; font-weight: 600; }
-.empty { color: var(--faint); font-size: 14px; padding: 8px 0; }
+.empty { color: var(--faint); font-size: 14px; line-height: 1.5; padding: 18px 2px; }
 
-/* ---- events feed ---- */
-.feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; }
-.feed li { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--border); }
-.feed li:first-child { border-top: none; }
+/* ---- activity feed, grouped by decision cycle ---- */
+.feed { display: flex; flex-direction: column; gap: 20px; max-height: 420px; overflow-y: auto; }
+.cycle { display: flex; flex-direction: column; gap: 9px; }
+
+/* the CICLO summary heads its group */
+.cycle-head { display: flex; gap: 10px; align-items: baseline; }
+.cycle-head .cycle-time { color: var(--faint); font-size: 11px; flex-shrink: 0; }
+.cycle-head .cycle-summary { font-size: 13px; font-weight: 500; color: var(--ink); }
+
+/* the moves hang off the head on a hairline timeline thread */
+.cycle-moves {
+  list-style: none; margin: 0 0 0 4px; padding: 1px 0 1px 16px;
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.cycle-moves.bare { border-left: none; margin-left: 0; padding-left: 0; }
+.cycle-moves .move { display: grid; grid-template-columns: 52px 1fr; gap: 10px; align-items: baseline; }
+.cycle-moves .body { font-family: var(--mono); font-size: 13px; }
+.cycle-moves .reason { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.cycle-moves .time { color: var(--faint); font-size: 11px; margin-right: 8px; }
+
+.cycle-foot { padding-left: 20px; color: var(--faint); font-size: 11px; }
+
 .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; padding: 2px 7px; border-radius: 5px; text-align: center; }
 .tag.buy { color: var(--pos); background: var(--pos-bg); }
 .tag.sell { color: var(--neg); background: var(--neg-bg); }
 .tag.dec { color: var(--muted); background: var(--surface-2); }
-.feed .body { font-family: var(--mono); font-size: 13px; }
-.feed .time { color: var(--faint); font-size: 11px; font-family: var(--mono); margin-right: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   .live .dot { animation: none; }

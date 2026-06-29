@@ -41,6 +41,7 @@ class EventOut(BaseModel):
     timestamp: datetime
     kind: str
     message: str
+    cycle_id: str | None = None
 
 
 class MemoryOut(BaseModel):

@@ -235,6 +235,49 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
     assert "memoria" in ev.message.lower()
 
 
+async def test_decision_events_share_one_cycle_id(db_session):
+    """Every event a single run_decision emits (decision summary, reasoning, trade)
+    must carry the same non-null cycle_id so the frontend can group them."""
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[
+        Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"), rationale="dip"),
+    ], note="in")
+    await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+                       brain_decide=lambda ctx, adapter: decision)
+    events = db_session.query(Event).filter_by(agent_id=agent.id).all()
+    kinds = {e.kind for e in events}
+    assert {"decision", "reasoning", "trade"} <= kinds   # all three present
+    cycle_ids = {e.cycle_id for e in events}
+    assert len(cycle_ids) == 1 and None not in cycle_ids  # exactly one, non-null
+
+
+async def test_two_cycles_get_distinct_cycle_ids(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[], note="hold")
+    for _ in range(2):
+        await run_decision(db_session, agent, market, ["BTCUSDT"], Decimal("10"),
+                           brain_decide=lambda ctx, adapter: decision)
+    ids = [e.cycle_id for e in db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").all()]
+    assert len(ids) == 2 and ids[0] != ids[1]
+
+
+async def test_heartbeat_sell_event_has_no_cycle_id(db_session):
+    """A guardrail liquidation in the heartbeat is not part of a decision cycle,
+    so its trade event must have a null cycle_id (rendered as its own group)."""
+    agent = _agent(db_session, "0")
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")), closes=[])
+    await run_heartbeat(db_session, agent, market)
+    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="trade").one()
+    assert ev.cycle_id is None
+
+
 async def test_no_reflection_when_no_sell(db_session):
     agent = _llm_agent(db_session)
     snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]

@@ -1,4 +1,5 @@
 from decimal import Decimal, ROUND_DOWN
+from uuid import uuid4
 from app.core.config import settings
 from app.db.models import EquitySnapshot, Event, AgentMemory
 from app.trading.engine import execute_buy, execute_sell
@@ -25,13 +26,14 @@ async def run_heartbeat(session, agent, market) -> None:
 
 async def run_decision(session, agent, market, symbols, buy_usd: Decimal, *,
                        brain_decide=brain_decide_default, reflect=run_reflection) -> None:
+    cycle_id = uuid4().hex
     if agent.strategy == "sma":
-        await _run_decision_sma(session, agent, market, symbols, buy_usd)
+        await _run_decision_sma(session, agent, market, symbols, buy_usd, cycle_id)
     else:
-        await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect)
+        await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id)
 
 
-async def _run_decision_sma(session, agent, market, symbols, buy_usd: Decimal) -> None:
+async def _run_decision_sma(session, agent, market, symbols, buy_usd: Decimal, cycle_id: str) -> None:
     held = {p.symbol: p for p in agent.positions}
     actions = errors = 0
     for symbol in symbols:
@@ -40,18 +42,18 @@ async def _run_decision_sma(session, agent, market, symbols, buy_usd: Decimal) -
             signal = decide_signal(closes)
             if signal == "BUY" and agent.cash_usd >= buy_usd:
                 _bid, ask = await market.get_book_ticker(symbol)
-                execute_buy(session, agent, symbol, buy_usd, ask); actions += 1
+                execute_buy(session, agent, symbol, buy_usd, ask, cycle_id=cycle_id); actions += 1
             elif signal == "SELL" and symbol in held:
                 bid, _ask = await market.get_book_ticker(symbol)
-                execute_sell(session, agent, symbol, held[symbol].quantity, bid); actions += 1
+                execute_sell(session, agent, symbol, held[symbol].quantity, bid, cycle_id=cycle_id); actions += 1
         except Exception:
             errors += 1
-    session.add(Event(agent_id=agent.id, kind="decision",
+    session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
                       message=f"ciclo decisione (SMA): {actions} operazioni su {len(symbols)} simboli, {errors} errori"))
     session.commit()
 
 
-async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect) -> None:
+async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id: str) -> None:
     try:
         universe = await market.get_universe_snapshot(symbols)
         universe_symbols = {c.symbol for c in universe}
@@ -78,7 +80,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         adapter = make_adapter(agent.model_provider or "anthropic", agent.model_name or "")
         decision = brain_decide(ctx, adapter)
     except Exception as exc:
-        session.add(Event(agent_id=agent.id, kind="decision",
+        session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
                           message=f"ciclo decisione (LLM): errore — {exc}"))
         session.commit()
         return
@@ -101,8 +103,8 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                 if amount < settings.min_trade_usd:
                     skipped += 1; continue
                 _bid, ask = await market.get_book_ticker(action.symbol)
-                execute_buy(session, agent, action.symbol, amount, ask)
-                _append_rationale(session, agent, action.rationale)
+                execute_buy(session, agent, action.symbol, amount, ask, cycle_id=cycle_id)
+                _append_rationale(session, agent, action.rationale, cycle_id)
                 session.refresh(agent)
                 held = {p.symbol: p for p in agent.positions}; actions += 1
             elif action.type == "SELL" and action.symbol in held:
@@ -112,18 +114,18 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                     skipped += 1; continue
                 avg_cost = held[action.symbol].avg_price
                 bid, _ask = await market.get_book_ticker(action.symbol)
-                execute_sell(session, agent, action.symbol, qty, bid)
+                execute_sell(session, agent, action.symbol, qty, bid, cycle_id=cycle_id)
                 realized = ((bid - avg_cost) / avg_cost * Decimal("100")) if avg_cost else Decimal("0")
                 closed_trades.append(ClosedTrade(symbol=action.symbol, qty=qty, sell_price=bid,
                                                  avg_cost=avg_cost, realized_pnl_pct=realized))
-                _append_rationale(session, agent, action.rationale)
+                _append_rationale(session, agent, action.rationale, cycle_id)
                 held = {p.symbol: p for p in agent.positions}; actions += 1
             else:
                 skipped += 1
         except Exception:
             errors += 1
     note = decision.note or "(no note)"
-    session.add(Event(agent_id=agent.id, kind="decision",
+    session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
                       message=f"ciclo decisione (LLM): {note} — {actions} operazioni, {skipped} saltate, {errors} errori"))
     session.commit()
 
@@ -132,17 +134,17 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
             held_symbols = [p.symbol for p in agent.positions]
             new_mem = reflect(memory, closed_trades, held_symbols, agent.instructions, adapter)
             _persist_memory(session, agent.id, new_mem)
-            session.add(Event(agent_id=agent.id, kind="reflection",
+            session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                               message="memoria aggiornata dopo trade chiuso"))
         except Exception as exc:
-            session.add(Event(agent_id=agent.id, kind="reflection",
+            session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                               message=f"reflection: errore — {exc}"))
         session.commit()
 
 
-def _append_rationale(session, agent, rationale: str) -> None:
+def _append_rationale(session, agent, rationale: str, cycle_id: str | None = None) -> None:
     if rationale:
-        session.add(Event(agent_id=agent.id, kind="reasoning", message=rationale))
+        session.add(Event(agent_id=agent.id, kind="reasoning", cycle_id=cycle_id, message=rationale))
 
 
 def _persist_memory(session, agent_id, mem: MemoryView) -> None:

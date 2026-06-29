@@ -63,6 +63,7 @@ class Event(Base):
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
     kind: Mapped[str] = mapped_column(String(30))
     message: Mapped[str] = mapped_column(String)
+    cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
