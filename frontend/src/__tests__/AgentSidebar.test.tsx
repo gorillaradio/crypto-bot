@@ -17,27 +17,27 @@ const base = [
 
 describe("AgentSidebar", () => {
   it("ranks agents by equity descending (leaderboard)", () => {
-    render(<AgentSidebar agents={base} selId={2} onSelect={() => {}} onCreate={() => {}} />);
+    render(<AgentSidebar agents={base} selId={2} onSelect={() => {}} onCreate={() => {}} onLogout={() => {}} />);
     const names = [...document.querySelectorAll(".rail-name")].map((n) => n.textContent);
     expect(names).toEqual(["Alto", "Medio", "Basso"]);
   });
 
   it("marks the selected agent with aria-current", () => {
-    render(<AgentSidebar agents={base} selId={3} onSelect={() => {}} onCreate={() => {}} />);
+    render(<AgentSidebar agents={base} selId={3} onSelect={() => {}} onCreate={() => {}} onLogout={() => {}} />);
     const current = document.querySelector('[aria-current="true"]');
     expect(current?.textContent).toContain("Medio");
   });
 
   it("calls onSelect with the clicked agent id", () => {
     const onSelect = vi.fn();
-    render(<AgentSidebar agents={base} selId={2} onSelect={onSelect} onCreate={() => {}} />);
+    render(<AgentSidebar agents={base} selId={2} onSelect={onSelect} onCreate={() => {}} onLogout={() => {}} />);
     fireEvent.click(screen.getByText("Basso"));
     expect(onSelect).toHaveBeenCalledWith(1);
   });
 
   it("calls onCreate from the add button", () => {
     const onCreate = vi.fn();
-    render(<AgentSidebar agents={base} selId={2} onSelect={() => {}} onCreate={onCreate} />);
+    render(<AgentSidebar agents={base} selId={2} onSelect={() => {}} onCreate={onCreate} onLogout={() => {}} />);
     fireEvent.click(screen.getByText(/nuovo agente/i));
     expect(onCreate).toHaveBeenCalledOnce();
   });

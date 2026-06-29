@@ -1,5 +1,8 @@
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
+export class AuthError extends Error {}
+export type Role = "admin" | "viewer" | null;
+
 export type Agent = {
   id: number;
   name: string;
@@ -27,6 +30,7 @@ export type AgentMemory = {
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
+  if (r.status === 401) throw new AuthError();
   if (!r.ok) throw new Error(`${path} → ${r.status}`);
   return r.json();
 }
@@ -51,6 +55,7 @@ async function mutate<T>(path: string, method: string, body?: unknown): Promise<
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (r.status === 401) throw new AuthError();
   if (!r.ok) throw new Error(`${path} → ${r.status}`);
   return r.status === 204 ? (undefined as T) : r.json();
 }
@@ -79,3 +84,19 @@ export async function getKlines(symbol: string, hours = 24): Promise<number[]> {
   klineCache.set(symbol, { ts: Date.now(), closes });
   return closes;
 }
+
+export const getMe = () => get<{ role: Role }>("/api/auth/me");
+export const login = (password: string) =>
+  mutate<{ role: Role }>("/api/auth/login", "POST", { password });
+export const logout = () => mutate<void>("/api/auth/logout", "POST");
+export const exchangeViewerToken = (token: string) =>
+  mutate<{ role: Role }>("/api/auth/viewer", "POST", { token });
+
+export type ShareLink = {
+  id: number; label: string | null; token: string; url: string; created_at: string;
+};
+export const listShareLinks = () => get<ShareLink[]>("/api/share-links");
+export const createShareLink = (label?: string) =>
+  mutate<ShareLink>("/api/share-links", "POST", { label: label ?? null });
+export const revokeShareLink = (id: number) =>
+  mutate<void>(`/api/share-links/${id}`, "DELETE");
