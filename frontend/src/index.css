@@ -148,3 +148,79 @@ h1, h2, h3 { font-weight: 600; color: var(--ink); margin: 0; letter-spacing: -0.
 @media (prefers-reduced-motion: reduce) {
   .live .dot { animation: none; }
 }
+
+.agent-tile.add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border-style: dashed;
+}
+.agent-actions { display: flex; gap: 8px; margin-top: 8px; }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.btn-ghost.danger { color: var(--neg); border-color: var(--neg); }
+.btn-primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--accent-ink);
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.btn-danger {
+  background: transparent;
+  border: 1px solid var(--neg);
+  color: var(--neg);
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.btn-primary:disabled, .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: oklch(0 0 0 / 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 20px;
+  width: min(440px, 92vw);
+  max-height: 90vh;
+  overflow: auto;
+  color: var(--ink);
+}
+.modal h2 { margin: 0 0 12px; }
+.modal label { display: block; margin: 10px 0 4px; font-size: 0.85rem; color: var(--muted); }
+.modal input, .modal textarea, .modal select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font: inherit;
+  box-sizing: border-box;
+}
+.modal-note { font-size: 0.8rem; color: var(--muted); margin: 10px 0 0; }
+.modal-error { color: var(--neg); font-size: 0.85rem; margin: 10px 0 0; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+@media (prefers-reduced-motion: no-preference) {
+  .modal { animation: modal-in 120ms ease-out; }
+  @keyframes modal-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}
