@@ -33,7 +33,7 @@ def _llm_agent(session):
     a = Agent(name="B", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
               cash_usd=Decimal("100"),
-              model_provider="deepseek", model_name="deepseek-chat")
+              model_provider="openrouter", model_name="deepseek/deepseek-v4-flash")
     session.add(a); session.commit()
     return a
 

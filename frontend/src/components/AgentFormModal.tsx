@@ -5,14 +5,11 @@ type Props =
   | { mode: "create"; onClose: () => void; onSaved: (a: Agent) => void }
   | { mode: "edit"; agent: Agent; onClose: () => void; onSaved: (a: Agent) => void };
 
-const PROVIDERS = ["anthropic", "deepseek", "glm", "openrouter"] as const;
-
 export function AgentFormModal(props: Props) {
   const isEdit = props.mode === "edit";
   const [name, setName] = useState(isEdit ? props.agent.name : "");
   const [instructions, setInstructions] = useState("");
   const [durationDays, setDurationDays] = useState(7);
-  const [provider, setProvider] = useState<(typeof PROVIDERS)[number]>("anthropic");
   const [modelName, setModelName] = useState("");
   const [universe, setUniverse] = useState<"TOP_50" | "TOP_100">("TOP_100");
   const [error, setError] = useState("");
@@ -35,7 +32,6 @@ export function AgentFormModal(props: Props) {
           name: name.trim(),
           instructions,
           duration_days: durationDays,
-          model_provider: provider,
           model_name: modelName.trim(),
           universe,
         };
@@ -67,15 +63,9 @@ export function AgentFormModal(props: Props) {
               <input id="agent-duration" type="number" min={1} value={durationDays}
                 onChange={(e) => setDurationDays(Number(e.target.value))} />
 
-              <label htmlFor="agent-provider">Provider</label>
-              <select id="agent-provider" value={provider}
-                onChange={(e) => setProvider(e.target.value as (typeof PROVIDERS)[number])}>
-                {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-
-              <label htmlFor="agent-model">Modello</label>
+              <label htmlFor="agent-model">Modello (OpenRouter)</label>
               <input id="agent-model" value={modelName}
-                onChange={(e) => setModelName(e.target.value)} placeholder="es. claude-opus-4-8" />
+                onChange={(e) => setModelName(e.target.value)} placeholder="es. deepseek/deepseek-v4-flash" />
 
               <label htmlFor="agent-universe">Universo</label>
               <select id="agent-universe" value={universe}

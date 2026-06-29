@@ -54,7 +54,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         ctx = build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                             holdings=holdings, universe=universe, recent_events=recent,
                             memory=memory)
-        adapter = make_adapter(agent.model_provider or "anthropic", agent.model_name or "")
+        adapter = make_adapter(agent.model_provider, agent.model_name)
         decision = brain_decide(ctx, adapter)
     except Exception as exc:
         session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,

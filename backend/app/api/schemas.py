@@ -8,7 +8,6 @@ class AgentCreate(BaseModel):
     name: str
     instructions: str = ""
     duration_days: int = 7
-    model_provider: Literal["anthropic", "deepseek", "glm", "openrouter"]
     model_name: str = Field(min_length=1)
     universe: Literal["TOP_50", "TOP_100"] = "TOP_100"
 

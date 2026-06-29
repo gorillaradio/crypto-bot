@@ -24,25 +24,22 @@ describe("AgentFormModal create", () => {
     expect(submit).not.toBeDisabled();
   });
 
-  it("always shows provider and model fields", () => {
+  it("always shows the model field", () => {
     render(<AgentFormModal mode="create" onClose={() => {}} onSaved={() => {}} />);
-    expect(screen.getByLabelText(/provider/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/modello/i)).toBeInTheDocument();
   });
 
-  it("submits the form payload (with provider + model) to createAgent", async () => {
+  it("submits the form payload (with model slug) to createAgent", async () => {
     const onSaved = vi.fn();
     vi.mocked(createAgent).mockResolvedValue({ id: 1, name: "Alpha" } as never);
     render(<AgentFormModal mode="create" onClose={() => {}} onSaved={onSaved} />);
     fireEvent.change(screen.getByLabelText(/nome/i), { target: { value: "Alpha" } });
-    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: "deepseek" } });
-    fireEvent.change(screen.getByLabelText(/modello/i), { target: { value: "deepseek-chat" } });
+    fireEvent.change(screen.getByLabelText(/modello/i), { target: { value: "deepseek/deepseek-v4-flash" } });
     fireEvent.click(screen.getByRole("button", { name: /crea/i }));
     await waitFor(() => expect(createAgent).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createAgent).mock.calls[0][0]).toMatchObject({
       name: "Alpha",
-      model_provider: "deepseek",
-      model_name: "deepseek-chat",
+      model_name: "deepseek/deepseek-v4-flash",
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });

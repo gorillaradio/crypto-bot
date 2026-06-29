@@ -21,7 +21,7 @@ def _client(db_session):
 def _mk(client, **over):
     """POST a valid agent payload; override any field via kwargs."""
     body = {"name": "A", "instructions": "", "duration_days": 7,
-            "model_provider": "anthropic", "model_name": "claude-x"}
+            "model_name": "deepseek/deepseek-v4-flash"}
     body.update(over)
     return client.post("/api/agents", json=body)
 
@@ -91,27 +91,15 @@ def test_get_positions_returns_holdings_with_cost_basis(db_session):
     assert Decimal(rows[0]["cost_basis"]) == Decimal("50.0")
 
 
-def test_create_agent_persists_model_fields(db_session):
+def test_create_agent_persists_model_and_default_provider(db_session):
     client = _client(db_session)
     resp = _mk(client, name="Brainy", instructions="buy low",
-               model_provider="deepseek", model_name="deepseek-chat")
+               model_name="deepseek/deepseek-v4-flash")
     assert resp.status_code == 201
     a = db_session.query(Agent).filter_by(name="Brainy").one()
     db_session.expire(a)                # force re-read from DB, bypass identity map
-    assert a.model_provider == "deepseek" and a.model_name == "deepseek-chat"
-
-
-def test_invalid_model_provider_rejected_at_boundary(db_session):
-    client = _client(db_session)
-    resp = _mk(client, name="Bad", model_provider="openai")
-    assert resp.status_code == 422
-
-
-def test_create_agent_requires_model_provider(db_session):
-    client = _client(db_session)
-    resp = client.post("/api/agents", json={
-        "name": "NoProv", "duration_days": 7, "model_name": "claude-x"})
-    assert resp.status_code == 422
+    assert a.model_provider == "openrouter"          # OpenRouter gateway default
+    assert a.model_name == "deepseek/deepseek-v4-flash"
 
 
 def test_create_agent_requires_model_name(db_session):
