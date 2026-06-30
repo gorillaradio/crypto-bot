@@ -32,7 +32,7 @@ export function InstructionsBlock({ text }: { text: string }) {
         // original .link-toggle: no bg/border, accent color, inherit font, 13px,
         // pt-5px, hover underline
         <button
-          className="bg-transparent border-0 text-[color:var(--ef-pos)] cursor-pointer font-[inherit] text-[13px] pt-[5px] p-0 hover:underline"
+          className="bg-transparent border-0 text-primary cursor-pointer font-[inherit] text-[13px] pt-[5px] p-0 hover:underline"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
         >
