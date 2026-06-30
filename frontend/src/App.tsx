@@ -5,6 +5,7 @@ import {
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
 } from "./api";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
@@ -38,10 +39,12 @@ function elapsed(startIso: string): string {
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="stat">
-      <div className="label">{label}</div>
-      <div className="value num">{children}</div>
-    </div>
+    <Card className="min-w-0">
+      <CardContent className="pt-4">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="mt-1 text-base font-semibold leading-tight break-words min-w-0 overflow-hidden">{children}</div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -143,23 +146,23 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
 
         {sel ? (
           <>
-            <section className="agent-header">
-              <div className="agent-title">
-                <h1>{sel.name}</h1>
+            <section className="pb-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-xl font-semibold leading-tight">{sel.name}</h1>
                 {isAdmin && (
-                  <div className="agent-actions">
+                  <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => setModal("edit")}>modifica</Button>
                     <Button variant="destructive" size="sm" onClick={() => setModal("delete")}>elimina</Button>
                   </div>
                 )}
               </div>
               {sel.instructions && <InstructionsBlock text={sel.instructions} />}
-              <span className="meta">
+              <span className="text-xs text-muted-foreground mt-1 block">
                 in corso da {elapsed(sel.duration_start)} · stato: {sel.status}
               </span>
             </section>
 
-            <section className="stats">
+            <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               <Stat label="Valore">{usd(equityNum)}</Stat>
               <Stat label="Rendimento"><Return pct={Number(sel.return_pct)} /></Stat>
               <Stat label="Cash">{usd(cashNum)}</Stat>
@@ -167,41 +170,51 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <Stat label="Posizioni">{positions.length}</Stat>
             </section>
 
-            <section className="card chart-card">
-              <div className="chart-head">
-                <span className="pct"><Return pct={Number(sel.return_pct)} /></span>
-                <span className="vs">equity vs investimento iniziale di $100</span>
-              </div>
-              <EquityChart data={equity} baseline={100} />
-            </section>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex flex-wrap items-baseline gap-3 mb-3">
+                  <span className="text-sm font-medium"><Return pct={Number(sel.return_pct)} /></span>
+                  <span className="text-xs text-muted-foreground">equity vs investimento iniziale di $100</span>
+                </div>
+                <EquityChart data={equity} baseline={100} />
+              </CardContent>
+            </Card>
 
-            <div className="two-col">
-              <section className="card">
-                <h2>Posizioni</h2>
-                <PositionsTable positions={positions} />
-              </section>
-              <section className="card">
-                <h2>Attività</h2>
-                <EventsFeed events={events} />
-              </section>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <Card>
+                <CardContent className="pt-4">
+                  <h2 className="text-sm font-semibold mb-3">Posizioni</h2>
+                  <PositionsTable positions={positions} />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4">
+                  <h2 className="text-sm font-semibold mb-3">Attività</h2>
+                  <EventsFeed events={events} />
+                </CardContent>
+              </Card>
             </div>
 
-            <section className="card">
-              <h2>Memoria</h2>
-              {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
-            </section>
+            <Card>
+              <CardContent className="pt-4">
+                <h2 className="text-sm font-semibold mb-3">Memoria</h2>
+                {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
+              </CardContent>
+            </Card>
           </>
         ) : (
-          <section className="card empty-state">
-            <p className="empty">
-              {isAdmin
-                ? "Nessun agente ancora. Creane uno per iniziare l'esperimento."
-                : "Nessun agente da mostrare."}
-            </p>
-            {isAdmin && (
-              <Button onClick={() => setModal("create")}>+ nuovo agente</Button>
-            )}
-          </section>
+          <Card className="text-center py-8">
+            <CardContent className="pt-4 flex flex-col items-center gap-4">
+              <p className="text-muted-foreground text-sm">
+                {isAdmin
+                  ? "Nessun agente ancora. Creane uno per iniziare l'esperimento."
+                  : "Nessun agente da mostrare."}
+              </p>
+              {isAdmin && (
+                <Button onClick={() => setModal("create")}>+ nuovo agente</Button>
+              )}
+            </CardContent>
+          </Card>
         )}
       </main>
 
