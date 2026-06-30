@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
@@ -88,12 +89,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     return () => clearInterval(h);
   }, [selId]);
 
-  useEffect(() => {
-    if (!navOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setNavOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [navOpen]);
+  // Manual Escape handler removed — shadcn Sheet handles Esc + backdrop dismiss natively.
 
   const reloadAgents = () => getAgents().then(setAgents).catch(onErr);
   const doLogout = async () => { await apiLogout().catch(() => {}); onAuthLost(); };
@@ -106,7 +102,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const selectAgent = (id: number) => { setSelId(id); setNavOpen(false); };
   const openCreate = () => { setModal("create"); setNavOpen(false); };
 
-  const sidebar = (
+  const sidebarContent = (
     <AgentSidebar
       agents={agents}
       selId={selId}
@@ -118,30 +114,46 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   );
 
   return (
-    <div className="shell">
-      <aside className="sidebar">{sidebar}</aside>
+    // Shell: mobile-first single column; at 880px+ switch to [264px 1fr] two-column grid.
+    <div className="min-[880px]:grid min-[880px]:grid-cols-[264px_1fr] min-h-svh">
 
-      <div
-        className={`sheet-backdrop${navOpen ? " open" : ""}`}
-        onClick={() => setNavOpen(false)}
-        aria-hidden="true"
-      />
-      <div className={`sheet${navOpen ? " open" : ""}`} role="dialog" aria-label="Agenti" aria-modal="true">
-        {sidebar}
-      </div>
+      {/* Desktop persistent rail — hidden below 880px */}
+      <aside className="hidden min-[880px]:block sticky top-0 h-svh overflow-hidden bg-card border-r border-border">
+        {sidebarContent}
+      </aside>
 
-      <main className="main">
-        <header className="mobile-bar">
+      {/* Mobile drawer via shadcn Sheet — visible only below 880px */}
+      <Sheet open={navOpen} onOpenChange={setNavOpen}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          className="p-0 w-[min(300px,84vw)] max-w-none min-[880px]:hidden"
+          aria-label="Agenti"
+        >
+          {sidebarContent}
+        </SheetContent>
+      </Sheet>
+
+      {/* Main content area */}
+      <main className="px-[16px] pt-[18px] pb-[56px] max-w-[1140px] min-[880px]:px-[32px] min-[880px]:pt-[28px] min-[880px]:pb-[64px]">
+
+        {/* Mobile top bar — hidden at 880px+ */}
+        <header className="flex items-center gap-[12px] pb-[16px] mb-[18px] border-b border-border min-[880px]:hidden">
           <button
-            className="hamburger"
+            className="inline-flex flex-col justify-center gap-[4px] w-[38px] h-[38px] px-[9px] cursor-pointer bg-card border border-border rounded-[8px]"
             onClick={() => setNavOpen(true)}
             aria-label="Apri elenco agenti"
             aria-expanded={navOpen}
           >
-            <span /><span /><span />
+            <span className="h-[2px] bg-foreground rounded-[2px]" />
+            <span className="h-[2px] bg-foreground rounded-[2px]" />
+            <span className="h-[2px] bg-foreground rounded-[2px]" />
           </button>
-          <span className="logo">crypto<b>·</b>bot</span>
-          <span className="live"><span className="dot" /> live</span>
+          <span className="font-bold tracking-[-0.02em] text-[17px]">crypto<b className="text-primary">·</b>bot</span>
+          <span className="ml-auto inline-flex items-center gap-[7px] text-muted-foreground text-[13px]">
+            <span className="live-dot" aria-hidden="true" />
+            live
+          </span>
         </header>
 
         {sel ? (

@@ -129,6 +129,28 @@
   }
 }
 
+/* --- shell: pulsing live-dot (used in desktop rail header + mobile top bar) --- */
+/* Exact original: 8px green circle, 2s ease-out infinite pulse, reduced-motion off */
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: oklch(0.78 0.16 150); /* --pos green */
+  box-shadow: 0 0 0 0 oklch(0.78 0.16 150);
+  animation: live-dot-pulse 2s ease-out infinite;
+}
+
+@keyframes live-dot-pulse {
+  0%   { box-shadow: 0 0 0 0   oklch(0.78 0.16 150 / 0.5); }
+  70%  { box-shadow: 0 0 0 7px oklch(0.78 0.16 150 / 0);   }
+  100% { box-shadow: 0 0 0 0   oklch(0.78 0.16 150 / 0);   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
+
 /* --- preserved: activity box (EventsFeed) is out of scope, keep its styles --- */
 
 :root {
