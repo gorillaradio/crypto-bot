@@ -42,11 +42,11 @@ export function Sparkline({ symbol }: { symbol: string }) {
 
   // Loading skeleton: 84×28px rounded rect, pulsing animation (see @keyframes spark-skel in index.css)
   if (closes === null)
-    return <span className="spark-skel inline-block w-[84px] h-[28px] rounded-[6px] bg-muted" aria-hidden="true" />;
+    return <span className="spark-skel inline-block w-21 h-7 rounded-md bg-muted" aria-hidden="true" />;
 
   // Not enough data: 84px wide faint em-dash placeholder
   if (!view)
-    return <span className="spark-na inline-block w-[84px] text-muted-foreground" aria-hidden="true">—</span>;
+    return <span className="spark-na inline-block w-21 text-muted-foreground" aria-hidden="true">—</span>;
 
   const cls = view.up ? "pos" : "neg";
   const lastY = (() => {
@@ -59,7 +59,7 @@ export function Sparkline({ symbol }: { symbol: string }) {
   return (
     // .spark: inline-flex, items-center, gap-8px; .pos/.neg apply the green/red color
     // from index.css (.pos { color: var(--ef-pos) } / .neg { color: var(--ef-neg) })
-    <span className={`spark ${cls} inline-flex items-center gap-[8px]`}>
+    <span className={`spark ${cls} inline-flex items-center gap-2`}>
       <svg
         width={W}
         height={H}
@@ -73,7 +73,7 @@ export function Sparkline({ symbol }: { symbol: string }) {
         <circle cx={view.lastX} cy={lastY} r="1.8" />
       </svg>
       {/* .spark-pct: 12px, tabular-nums mono; color inherited from parent .pos/.neg */}
-      <span className={`spark-pct num ${cls} text-[12px]`}>
+      <span className={`spark-pct num ${cls} text-xs`}>
         {view.up ? "▲" : "▼"} {view.up ? "+" : "−"}
         {Math.abs(view.pct).toFixed(1)}%
       </span>

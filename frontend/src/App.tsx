@@ -135,22 +135,22 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       </Sheet>
 
       {/* Main content area */}
-      <main className="px-[16px] pt-[18px] pb-[56px] max-w-[1140px] min-[880px]:px-[32px] min-[880px]:pt-[28px] min-[880px]:pb-[64px]">
+      <main className="px-4 pt-4.5 pb-14 max-w-[1140px] min-[880px]:px-8 min-[880px]:pt-7 min-[880px]:pb-16">
 
         {/* Mobile top bar — hidden at 880px+ */}
-        <header className="flex items-center gap-[12px] pb-[16px] mb-[18px] border-b border-border min-[880px]:hidden">
+        <header className="flex items-center gap-3 pb-4 mb-4.5 border-b border-border min-[880px]:hidden">
           <button
-            className="inline-flex flex-col justify-center gap-[4px] w-[38px] h-[38px] px-[9px] cursor-pointer bg-card border border-border rounded-[8px]"
+            className="inline-flex flex-col justify-center gap-1 size-9.5 px-2.5 cursor-pointer bg-card border border-border rounded-lg"
             onClick={() => setNavOpen(true)}
             aria-label="Apri elenco agenti"
             aria-expanded={navOpen}
           >
-            <span className="h-[2px] bg-foreground rounded-[2px]" />
-            <span className="h-[2px] bg-foreground rounded-[2px]" />
-            <span className="h-[2px] bg-foreground rounded-[2px]" />
+            <span className="h-0.5 bg-foreground rounded-sm" />
+            <span className="h-0.5 bg-foreground rounded-sm" />
+            <span className="h-0.5 bg-foreground rounded-sm" />
           </button>
-          <span className="font-bold tracking-[-0.02em] text-[17px]">crypto<b className="text-primary">·</b>bot</span>
-          <span className="ml-auto inline-flex items-center gap-[7px] text-muted-foreground text-[13px]">
+          <span className="font-bold tracking-[-0.02em] text-lg">crypto<b className="text-primary">·</b>bot</span>
+          <span className="ml-auto inline-flex items-center gap-2 text-muted-foreground text-sm">
             <span className="live-dot" aria-hidden="true" />
             live
           </span>

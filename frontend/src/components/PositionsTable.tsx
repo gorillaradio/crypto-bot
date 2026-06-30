@@ -24,11 +24,11 @@ const qty = (s: string) => {
 };
 
 // Shared cell classes: original .ptable th/td — right-aligned, nowrap, tabular-nums mono
-const thBase = "text-right text-[12px] font-medium text-muted-foreground whitespace-nowrap py-0 pb-[8px] px-0";
-const tdBase = "text-right whitespace-nowrap py-[8px] px-0 border-t border-border border-b-0 tabular-nums font-mono";
+const thBase = "text-right text-xs font-medium text-muted-foreground whitespace-nowrap py-0 pb-2 px-0";
+const tdBase = "text-right whitespace-nowrap py-2 px-0 border-t border-border border-b-0 tabular-nums font-mono";
 // Sparkline column: left-aligned, 16px horizontal padding (original .th-spark/.td-spark)
-const thSpark = "text-left pl-[16px] pr-[16px]";
-const tdSpark = "text-left pl-[16px] pr-[16px]";
+const thSpark = "text-left pl-4 pr-4";
+const tdSpark = "text-left pl-4 pr-4";
 
 export function PositionsTable({ positions }: { positions: Position[] }) {
   if (!positions.length)

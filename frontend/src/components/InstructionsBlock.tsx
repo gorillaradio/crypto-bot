@@ -16,7 +16,7 @@ export function InstructionsBlock({ text }: { text: string }) {
 
   return (
     // original .instructions: margin-top 10px, max-width 75ch
-    <div className="mt-[10px] max-w-[75ch]">
+    <div className="mt-2.5 max-w-[75ch]">
       {/*
         Keep class names "instructions-text" and "open" — InstructionsBlock.test.tsx
         queries them directly via document.querySelector(".instructions-text") + .open.
@@ -32,7 +32,7 @@ export function InstructionsBlock({ text }: { text: string }) {
         // original .link-toggle: no bg/border, accent color, inherit font, 13px,
         // pt-5px, hover underline
         <button
-          className="bg-transparent border-0 text-primary cursor-pointer font-[inherit] text-[13px] pt-[5px] p-0 hover:underline"
+          className="bg-transparent border-0 text-primary cursor-pointer font-[inherit] text-sm pt-1 p-0 hover:underline"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
         >
