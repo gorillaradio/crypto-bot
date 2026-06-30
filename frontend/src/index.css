@@ -151,6 +151,21 @@
   .live-dot { animation: none; }
 }
 
+/* --- sparkline skeleton animation (Sparkline.tsx .spark-skel) --- */
+/* Exact original: opacity oscillates 0.5→1→0.5 over 1.4s; disabled under reduced-motion */
+@keyframes spark-skel {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1;   }
+}
+
+.spark-skel {
+  animation: spark-skel 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-skel { animation: none; }
+}
+
 /* --- preserved: activity box (EventsFeed) is out of scope, keep its styles --- */
 
 :root {
