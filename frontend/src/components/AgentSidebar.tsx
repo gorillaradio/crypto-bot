@@ -1,5 +1,6 @@
 import type { Agent } from "../api";
 import { Button } from "@/components/ui/button";
+import { ModeToggle } from "@/components/mode-toggle";
 
 const usd = (n: number) =>
   `$${n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
@@ -116,21 +117,20 @@ export function AgentSidebar({ agents, selId, onSelect, onCreate, onShare, onLog
         </button>
       )}
 
-      {/* footer — admin only: share + logout */}
-      {(onShare || onLogout) && (
-        <div className="mt-auto pt-3 border-t border-border flex gap-2 px-2.5 pb-2.5">
-          {onShare && (
-            <Button variant="outline" size="sm" onClick={onShare}>
-              Condividi
-            </Button>
-          )}
-          {onLogout && (
-            <Button variant="outline" size="sm" onClick={onLogout}>
-              Esci
-            </Button>
-          )}
-        </div>
-      )}
+      {/* footer: theme toggle (all roles) + admin-only share/logout */}
+      <div className="mt-auto pt-3 border-t border-border flex items-center gap-2 px-2.5 pb-2.5">
+        <ModeToggle />
+        {onShare && (
+          <Button variant="outline" size="sm" onClick={onShare}>
+            Condividi
+          </Button>
+        )}
+        {onLogout && (
+          <Button variant="outline" size="sm" onClick={onLogout}>
+            Esci
+          </Button>
+        )}
+      </div>
     </nav>
   );
 }
