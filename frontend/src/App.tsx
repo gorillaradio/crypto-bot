@@ -40,9 +40,9 @@ function elapsed(startIso: string): string {
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <Card className="min-w-0">
-      <CardContent className="pt-4">
+      <CardContent>
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="mt-1 text-base font-semibold leading-tight break-words min-w-0 overflow-hidden">{children}</div>
+        <div className="mt-1.5 text-2xl font-semibold leading-tight break-words min-w-0 overflow-hidden">{children}</div>
       </CardContent>
     </Card>
   );
@@ -145,10 +145,10 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
         </header>
 
         {sel ? (
-          <>
+          <div className="space-y-5">
             <section className="pb-2">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-xl font-semibold leading-tight">{sel.name}</h1>
+                <h1 className="text-2xl font-semibold leading-tight">{sel.name}</h1>
                 {isAdmin && (
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => setModal("edit")}>modifica</Button>
@@ -171,9 +171,9 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             </section>
 
             <Card>
-              <CardContent className="pt-4">
+              <CardContent>
                 <div className="flex flex-wrap items-baseline gap-3 mb-3">
-                  <span className="text-sm font-medium"><Return pct={Number(sel.return_pct)} /></span>
+                  <span className="text-xl font-medium"><Return pct={Number(sel.return_pct)} /></span>
                   <span className="text-xs text-muted-foreground">equity vs investimento iniziale di $100</span>
                 </div>
                 <EquityChart data={equity} baseline={100} />
@@ -182,29 +182,29 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <Card>
-                <CardContent className="pt-4">
-                  <h2 className="text-sm font-semibold mb-3">Posizioni</h2>
+                <CardContent>
+                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Posizioni</h2>
                   <PositionsTable positions={positions} />
                 </CardContent>
               </Card>
               <Card>
-                <CardContent className="pt-4">
-                  <h2 className="text-sm font-semibold mb-3">Attività</h2>
+                <CardContent>
+                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Attività</h2>
                   <EventsFeed events={events} />
                 </CardContent>
               </Card>
             </div>
 
             <Card>
-              <CardContent className="pt-4">
-                <h2 className="text-sm font-semibold mb-3">Memoria</h2>
+              <CardContent>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Memoria</h2>
                 {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
               </CardContent>
             </Card>
-          </>
+          </div>
         ) : (
-          <Card className="text-center py-8">
-            <CardContent className="pt-4 flex flex-col items-center gap-4">
+          <Card className="py-8">
+            <CardContent className="flex flex-col items-start gap-3.5">
               <p className="text-muted-foreground text-sm">
                 {isAdmin
                   ? "Nessun agente ancora. Creane uno per iniziare l'esperimento."
