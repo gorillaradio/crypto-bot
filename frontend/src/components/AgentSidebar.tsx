@@ -1,4 +1,5 @@
 import type { Agent } from "../api";
+import { Button } from "@/components/ui/button";
 
 const usd = (n: number) =>
   `$${n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
@@ -64,15 +65,15 @@ export function AgentSidebar({ agents, selId, onSelect, onCreate, onShare, onLog
       </div>
 
       {onCreate && (
-        <button className="rail-add" onClick={onCreate}>
+        <Button className="rail-add" onClick={onCreate}>
           <span aria-hidden="true">+</span> nuovo agente
-        </button>
+        </Button>
       )}
 
       {(onShare || onLogout) && (
         <div className="rail-foot">
-          {onShare && <button className="btn-ghost" onClick={onShare}>Condividi</button>}
-          {onLogout && <button className="btn-ghost" onClick={onLogout}>Esci</button>}
+          {onShare && <Button variant="outline" size="sm" onClick={onShare}>Condividi</Button>}
+          {onLogout && <Button variant="outline" size="sm" onClick={onLogout}>Esci</Button>}
         </div>
       )}
     </nav>

@@ -4,6 +4,7 @@ import {
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
 } from "./api";
+import { Button } from "@/components/ui/button";
 import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
@@ -147,8 +148,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                 <h1>{sel.name}</h1>
                 {isAdmin && (
                   <div className="agent-actions">
-                    <button className="btn-ghost" onClick={() => setModal("edit")}>modifica</button>
-                    <button className="btn-ghost danger" onClick={() => setModal("delete")}>elimina</button>
+                    <Button variant="outline" size="sm" onClick={() => setModal("edit")}>modifica</Button>
+                    <Button variant="destructive" size="sm" onClick={() => setModal("delete")}>elimina</Button>
                   </div>
                 )}
               </div>
@@ -198,7 +199,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                 : "Nessun agente da mostrare."}
             </p>
             {isAdmin && (
-              <button className="btn-primary" onClick={() => setModal("create")}>+ nuovo agente</button>
+              <Button onClick={() => setModal("create")}>+ nuovo agente</Button>
             )}
           </section>
         )}
