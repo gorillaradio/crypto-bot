@@ -114,20 +114,20 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   );
 
   return (
-    // Shell: mobile-first single column; at 880px+ switch to [264px 1fr] two-column grid.
-    <div className="min-[880px]:grid min-[880px]:grid-cols-[264px_1fr] min-h-svh">
+    // Shell: mobile-first single column; at lg+ the sidebar rail sits alongside content.
+    <div className="lg:grid lg:grid-cols-[auto_1fr] min-h-svh">
 
-      {/* Desktop persistent rail — hidden below 880px */}
-      <aside className="hidden min-[880px]:block sticky top-0 h-svh overflow-hidden bg-card border-r border-border">
+      {/* Desktop persistent rail — hidden below lg */}
+      <aside className="hidden lg:block w-64 sticky top-0 h-svh overflow-hidden bg-card border-r border-border">
         {sidebarContent}
       </aside>
 
-      {/* Mobile drawer via shadcn Sheet — visible only below 880px */}
+      {/* Mobile drawer via shadcn Sheet — visible only below lg */}
       <Sheet open={navOpen} onOpenChange={setNavOpen}>
         <SheetContent
           side="left"
           showCloseButton={false}
-          className="p-0 w-[min(300px,84vw)] max-w-none min-[880px]:hidden"
+          className="p-0 w-72 max-w-none lg:hidden"
           aria-label="Agenti"
         >
           {sidebarContent}
@@ -135,10 +135,10 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       </Sheet>
 
       {/* Main content area */}
-      <main className="px-4 pt-4.5 pb-14 max-w-[1140px] min-[880px]:px-8 min-[880px]:pt-7 min-[880px]:pb-16">
+      <main className="px-4 pt-4.5 pb-14 max-w-6xl lg:px-8 lg:pt-7 lg:pb-16">
 
-        {/* Mobile top bar — hidden at 880px+ */}
-        <header className="flex items-center gap-3 pb-4 mb-4.5 border-b border-border min-[880px]:hidden">
+        {/* Mobile top bar — hidden at lg+ */}
+        <header className="flex items-center gap-3 pb-4 mb-4.5 border-b border-border lg:hidden">
           <button
             className="inline-flex flex-col justify-center gap-1 size-9.5 px-2.5 cursor-pointer bg-card border border-border rounded-lg"
             onClick={() => setNavOpen(true)}

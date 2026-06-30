@@ -58,8 +58,8 @@ export function AgentSidebar({ agents, selId, onSelect, onCreate, onShare, onLog
               key={a.id}
               role="listitem"
               className={[
-                // grid: rank col (16px) | body | equity
-                "grid grid-cols-[16px_1fr_auto] items-center gap-2.5",
+                // grid: rank col (1rem) | body | equity
+                "grid grid-cols-[1rem_1fr_auto] items-center gap-2.5",
                 "w-full text-left font-[inherit] text-foreground",
                 "bg-transparent border border-transparent rounded-lg",
                 "px-2.5 py-2.5 cursor-pointer",
