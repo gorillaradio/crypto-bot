@@ -4,6 +4,9 @@ import {
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
 } from "./api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
@@ -37,10 +40,12 @@ function elapsed(startIso: string): string {
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="stat">
-      <div className="label">{label}</div>
-      <div className="value num">{children}</div>
-    </div>
+    <Card className="min-w-0">
+      <CardContent>
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="mt-1.5 text-2xl font-semibold leading-tight break-words min-w-0 overflow-hidden">{children}</div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -84,12 +89,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     return () => clearInterval(h);
   }, [selId]);
 
-  useEffect(() => {
-    if (!navOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setNavOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [navOpen]);
+  // Manual Escape handler removed — shadcn Sheet handles Esc + backdrop dismiss natively.
 
   const reloadAgents = () => getAgents().then(setAgents).catch(onErr);
   const doLogout = async () => { await apiLogout().catch(() => {}); onAuthLost(); };
@@ -102,7 +102,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const selectAgent = (id: number) => { setSelId(id); setNavOpen(false); };
   const openCreate = () => { setModal("create"); setNavOpen(false); };
 
-  const sidebar = (
+  const sidebarContent = (
     <AgentSidebar
       agents={agents}
       selId={selId}
@@ -114,51 +114,67 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   );
 
   return (
-    <div className="shell">
-      <aside className="sidebar">{sidebar}</aside>
+    // Shell: mobile-first single column; at lg+ the sidebar rail sits alongside content.
+    <div className="lg:grid lg:grid-cols-[auto_1fr] min-h-svh">
 
-      <div
-        className={`sheet-backdrop${navOpen ? " open" : ""}`}
-        onClick={() => setNavOpen(false)}
-        aria-hidden="true"
-      />
-      <div className={`sheet${navOpen ? " open" : ""}`} role="dialog" aria-label="Agenti" aria-modal="true">
-        {sidebar}
-      </div>
+      {/* Desktop persistent rail — hidden below lg */}
+      <aside className="hidden lg:block w-64 sticky top-0 h-svh overflow-hidden bg-card border-r border-border">
+        {sidebarContent}
+      </aside>
 
-      <main className="main">
-        <header className="mobile-bar">
+      {/* Mobile drawer via shadcn Sheet — visible only below lg */}
+      <Sheet open={navOpen} onOpenChange={setNavOpen}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          className="p-0 w-72 max-w-none lg:hidden"
+          aria-label="Agenti"
+        >
+          {sidebarContent}
+        </SheetContent>
+      </Sheet>
+
+      {/* Main content area */}
+      <main className="px-4 pt-4.5 pb-14 max-w-6xl lg:px-8 lg:pt-7 lg:pb-16">
+
+        {/* Mobile top bar — hidden at lg+ */}
+        <header className="flex items-center gap-3 pb-4 mb-4.5 border-b border-border lg:hidden">
           <button
-            className="hamburger"
+            className="inline-flex flex-col justify-center gap-1 size-9.5 px-2.5 cursor-pointer bg-card border border-border rounded-lg"
             onClick={() => setNavOpen(true)}
             aria-label="Apri elenco agenti"
             aria-expanded={navOpen}
           >
-            <span /><span /><span />
+            <span className="h-0.5 bg-foreground rounded-sm" />
+            <span className="h-0.5 bg-foreground rounded-sm" />
+            <span className="h-0.5 bg-foreground rounded-sm" />
           </button>
-          <span className="logo">crypto<b>·</b>bot</span>
-          <span className="live"><span className="dot" /> live</span>
+          <span className="font-bold tracking-[-0.02em] text-lg">crypto<b className="text-primary">·</b>bot</span>
+          <span className="ml-auto inline-flex items-center gap-2 text-muted-foreground text-sm">
+            <span className="live-dot" aria-hidden="true" />
+            live
+          </span>
         </header>
 
         {sel ? (
-          <>
-            <section className="agent-header">
-              <div className="agent-title">
-                <h1>{sel.name}</h1>
+          <div className="space-y-5">
+            <section className="pb-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-semibold leading-tight">{sel.name}</h1>
                 {isAdmin && (
-                  <div className="agent-actions">
-                    <button className="btn-ghost" onClick={() => setModal("edit")}>modifica</button>
-                    <button className="btn-ghost danger" onClick={() => setModal("delete")}>elimina</button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setModal("edit")}>modifica</Button>
+                    <Button variant="destructive" size="sm" onClick={() => setModal("delete")}>elimina</Button>
                   </div>
                 )}
               </div>
               {sel.instructions && <InstructionsBlock text={sel.instructions} />}
-              <span className="meta">
+              <span className="text-xs text-muted-foreground mt-1 block">
                 in corso da {elapsed(sel.duration_start)} · stato: {sel.status}
               </span>
             </section>
 
-            <section className="stats">
+            <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               <Stat label="Valore">{usd(equityNum)}</Stat>
               <Stat label="Rendimento"><Return pct={Number(sel.return_pct)} /></Stat>
               <Stat label="Cash">{usd(cashNum)}</Stat>
@@ -166,41 +182,51 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <Stat label="Posizioni">{positions.length}</Stat>
             </section>
 
-            <section className="card chart-card">
-              <div className="chart-head">
-                <span className="pct"><Return pct={Number(sel.return_pct)} /></span>
-                <span className="vs">equity vs investimento iniziale di $100</span>
-              </div>
-              <EquityChart data={equity} baseline={100} />
-            </section>
+            <Card>
+              <CardContent>
+                <div className="flex flex-wrap items-baseline gap-3 mb-3">
+                  <span className="text-xl font-medium"><Return pct={Number(sel.return_pct)} /></span>
+                  <span className="text-xs text-muted-foreground">equity vs investimento iniziale di $100</span>
+                </div>
+                <EquityChart data={equity} baseline={100} />
+              </CardContent>
+            </Card>
 
-            <div className="two-col">
-              <section className="card">
-                <h2>Posizioni</h2>
-                <PositionsTable positions={positions} />
-              </section>
-              <section className="card">
-                <h2>Attività</h2>
-                <EventsFeed events={events} />
-              </section>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <Card>
+                <CardContent>
+                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Posizioni</h2>
+                  <PositionsTable positions={positions} />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent>
+                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Attività</h2>
+                  <EventsFeed events={events} />
+                </CardContent>
+              </Card>
             </div>
 
-            <section className="card">
-              <h2>Memoria</h2>
-              {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
-            </section>
-          </>
+            <Card>
+              <CardContent>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Memoria</h2>
+                {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
+              </CardContent>
+            </Card>
+          </div>
         ) : (
-          <section className="card empty-state">
-            <p className="empty">
-              {isAdmin
-                ? "Nessun agente ancora. Creane uno per iniziare l'esperimento."
-                : "Nessun agente da mostrare."}
-            </p>
-            {isAdmin && (
-              <button className="btn-primary" onClick={() => setModal("create")}>+ nuovo agente</button>
-            )}
-          </section>
+          <Card className="py-8">
+            <CardContent className="flex flex-col items-start gap-3.5">
+              <p className="text-muted-foreground text-sm">
+                {isAdmin
+                  ? "Nessun agente ancora. Creane uno per iniziare l'esperimento."
+                  : "Nessun agente da mostrare."}
+              </p>
+              {isAdmin && (
+                <Button onClick={() => setModal("create")}>+ nuovo agente</Button>
+              )}
+            </CardContent>
+          </Card>
         )}
       </main>
 

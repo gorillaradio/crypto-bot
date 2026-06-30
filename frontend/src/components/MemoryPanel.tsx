@@ -8,17 +8,19 @@ const SECTIONS: { key: keyof AgentMemory; label: string }[] = [
 
 export function MemoryPanel({ memory }: { memory: AgentMemory }) {
   const empty = SECTIONS.every((s) => !memory[s.key].trim());
-  if (empty) return <p className="empty">Ancora nessuna memoria. L'agente non ha chiuso trade.</p>;
+  if (empty) return <p className="text-sm text-muted-foreground">Ancora nessuna memoria. L'agente non ha chiuso trade.</p>;
 
   return (
-    <div className="memory">
+    <div className="flex flex-col gap-4">
       {SECTIONS.map((s) => {
         const rows = memory[s.key].split("\n").filter((l) => l.trim());
         if (!rows.length) return null;
         return (
-          <div key={s.key} className="memory-section">
-            <h3>{s.label}</h3>
-            <ul>{rows.map((l, i) => <li key={i}>{l}</li>)}</ul>
+          <div key={s.key}>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{s.label}</h3>
+            <ul className="list-disc list-inside space-y-0.5 text-sm">
+              {rows.map((l, i) => <li key={i}>{l}</li>)}
+            </ul>
           </div>
         );
       })}

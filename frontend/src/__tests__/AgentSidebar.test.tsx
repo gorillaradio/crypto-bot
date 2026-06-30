@@ -18,7 +18,9 @@ const base = [
 describe("AgentSidebar", () => {
   it("ranks agents by equity descending (leaderboard)", () => {
     render(<AgentSidebar agents={base} selId={2} onSelect={() => {}} onCreate={() => {}} onLogout={() => {}} />);
-    const names = [...document.querySelectorAll(".rail-name")].map((n) => n.textContent);
+    // Get all listitem buttons and check their name order reflects the equity ranking.
+    const items = screen.getAllByRole("listitem");
+    const names = items.map((el) => el.querySelector(".rail-name")?.textContent);
     expect(names).toEqual(["Alto", "Medio", "Basso"]);
   });
 

@@ -5,6 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>crypto-bot</title>
+    <script>
+      // Apply the stored (or default dark) theme before paint to avoid a flash.
+      // Mirrors the ThemeProvider's class logic; storageKey must match main.tsx.
+      (function () {
+        try {
+          var t = localStorage.getItem('crypto-bot-theme') || 'dark';
+          var c = t === 'system'
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : t;
+          document.documentElement.classList.add(c);
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

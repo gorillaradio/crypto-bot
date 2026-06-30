@@ -8,12 +8,14 @@ import { login } from "../api";
 beforeEach(() => vi.mocked(login).mockReset());
 
 describe("Login", () => {
-  it("disables submit until a password is typed", () => {
+  // The submit button is intentionally NOT gated on a controlled `password` state
+  // (that gate silently no-op'd on Safari, where autofill sets the value without
+  // firing onChange). It stays clickable; an empty submit is blocked by validation.
+  it("blocks an empty submit with a validation message and does not call login", async () => {
     render(<Login onAuthed={() => {}} />);
-    const btn = screen.getByRole("button", { name: /entra/i });
-    expect(btn).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "x" } });
-    expect(btn).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /entra/i }));
+    expect(await screen.findByText(/inserisci la password/i)).toBeInTheDocument();
+    expect(login).not.toHaveBeenCalled();
   });
 
   it("calls onAuthed when login returns role admin", async () => {

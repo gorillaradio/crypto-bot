@@ -15,13 +15,24 @@ export function InstructionsBlock({ text }: { text: string }) {
   }, [text]);
 
   return (
-    <div className="instructions">
-      <p ref={ref} className={`instructions-text${open ? " open" : ""}`}>
+    // original .instructions: margin-top 10px, max-width 75ch
+    <div className="mt-2.5 max-w-[75ch]">
+      {/*
+        Keep class names "instructions-text" and "open" — InstructionsBlock.test.tsx
+        queries them directly via document.querySelector(".instructions-text") + .open.
+        Tailwind handles the 2-line clamp when NOT open; when open the clamp is lifted.
+      */}
+      <p
+        ref={ref}
+        className={`instructions-text text-muted-foreground m-0${open ? " open" : " line-clamp-2"}`}
+      >
         {text}
       </p>
       {(overflows || open) && (
+        // original .link-toggle: no bg/border, accent color, inherit font, 13px,
+        // pt-5px, hover underline
         <button
-          className="link-toggle"
+          className="bg-transparent border-0 text-primary cursor-pointer font-[inherit] text-sm pt-1 p-0 hover:underline"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
         >

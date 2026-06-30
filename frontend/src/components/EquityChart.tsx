@@ -20,7 +20,7 @@ export function EquityChart({ data, baseline = 100 }: { data: EquityPoint[]; bas
   const pad = Math.max((max - min) * 0.15, max * 0.001) || 1;
 
   return (
-    <div data-testid="equity-chart" style={{ width: "100%", height: 280 }}>
+    <div data-testid="equity-chart" className="w-full h-72">
       <ResponsiveContainer>
         <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
           <defs>
