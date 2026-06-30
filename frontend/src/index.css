@@ -265,6 +265,7 @@ h1, h2, h3 { font-weight: 600; color: var(--ink); margin: 0; letter-spacing: -0.
   .sidebar { display: none; }
   .sheet, .sheet-backdrop { display: block; }
   .main { padding: 18px 16px 56px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
   .mobile-bar {
     display: flex; align-items: center; gap: 12px;
     padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid var(--border);

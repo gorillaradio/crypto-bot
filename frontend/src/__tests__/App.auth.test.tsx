@@ -49,7 +49,10 @@ describe("App viewer mode", () => {
       duration_start: new Date().toISOString(), duration_end: new Date().toISOString(),
     }] as never);
     render(<App />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /esci/i }).length).toBeGreaterThan(0));
+    // Wait for the viewer dashboard to render (agent name appears), then assert
+    // every write control AND the logout button are absent for a viewer.
+    await screen.findAllByText("Alpha");
+    expect(screen.queryAllByRole("button", { name: /esci/i })).toHaveLength(0);
     expect(screen.queryAllByRole("button", { name: /modifica/i })).toHaveLength(0);
     expect(screen.queryAllByRole("button", { name: /elimina/i })).toHaveLength(0);
     expect(screen.queryAllByRole("button", { name: /nuovo agente/i })).toHaveLength(0);

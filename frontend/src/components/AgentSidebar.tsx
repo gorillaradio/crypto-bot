@@ -19,7 +19,7 @@ type Props = {
   onSelect: (id: number) => void;
   onCreate?: () => void;
   onShare?: () => void;
-  onLogout: () => void;
+  onLogout?: () => void;
 };
 
 // Agent switcher + at-a-glance leaderboard. Same component drives the persistent
@@ -69,10 +69,12 @@ export function AgentSidebar({ agents, selId, onSelect, onCreate, onShare, onLog
         </button>
       )}
 
-      <div className="rail-foot">
-        {onShare && <button className="btn-ghost" onClick={onShare}>Condividi</button>}
-        <button className="btn-ghost" onClick={onLogout}>Esci</button>
-      </div>
+      {(onShare || onLogout) && (
+        <div className="rail-foot">
+          {onShare && <button className="btn-ghost" onClick={onShare}>Condividi</button>}
+          {onLogout && <button className="btn-ghost" onClick={onLogout}>Esci</button>}
+        </div>
+      )}
     </nav>
   );
 }
