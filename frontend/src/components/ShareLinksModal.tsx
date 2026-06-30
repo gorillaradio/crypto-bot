@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { listShareLinks, createShareLink, revokeShareLink, type ShareLink } from "../api";
 import {
   Dialog,
@@ -8,29 +11,36 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormControl,
+} from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
+
+const schema = z.object({ label: z.string() });
+type Values = z.infer<typeof schema>;
 
 export function ShareLinksModal({ onClose }: { onClose: () => void }) {
   const [links, setLinks] = useState<ShareLink[]>([]);
-  const [label, setLabel] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const form = useForm<Values>({
+    resolver: zodResolver(schema),
+    defaultValues: { label: "" },
+  });
 
   const reload = () => listShareLinks().then(setLinks).catch(() => setError("caricamento fallito"));
   useEffect(() => { reload(); }, []);
 
-  async function create() {
-    if (busy) return;
-    setBusy(true);
+  async function onSubmit(values: Values) {
     setError("");
     try {
-      await createShareLink(label.trim() || undefined);
-      setLabel("");
+      await createShareLink(values.label.trim() || undefined);
+      form.reset({ label: "" });
       await reload();
     } catch {
       setError("creazione fallita");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -53,11 +63,18 @@ export function ShareLinksModal({ onClose }: { onClose: () => void }) {
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">Crea link segreti per dare accesso in sola lettura. Ogni link
             è revocabile in qualsiasi momento.</p>
-          <div className="flex gap-2">
-            <Input value={label} placeholder="etichetta (opzionale)"
-              onChange={(e) => setLabel(e.target.value)} />
-            <Button type="button" onClick={create} disabled={busy}>Crea link</Button>
-          </div>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex gap-2">
+              <FormField control={form.control} name="label" render={({ field }) => (
+                <FormItem className="flex-1">
+                  <FormControl>
+                    <Input placeholder="etichetta (opzionale)" {...field} />
+                  </FormControl>
+                </FormItem>
+              )} />
+              <Button type="submit" disabled={form.formState.isSubmitting}>Crea link</Button>
+            </form>
+          </Form>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <ul className="flex flex-col gap-2">
             {links.map((l) => (
