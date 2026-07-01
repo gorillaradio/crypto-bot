@@ -246,6 +246,23 @@ async def test_no_reflection_when_no_sell(db_session):
     assert db_session.query(AgentMemory).filter_by(agent_id=agent.id).count() == 0
 
 
+async def test_run_decision_passes_wake_reason_and_marks_event(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    captured = {}
+
+    def capture(ctx, adapter):
+        captured["wake"] = ctx.wake_reason
+        return Decision(actions=[], note="held")
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       wake_reason="BTCUSDT -12% oltre stop", brain_decide=capture)
+    assert captured["wake"] == "BTCUSDT -12% oltre stop"
+    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
+    assert "fuori ciclo" in ev.message
+
+
 async def test_reflection_failure_is_isolated(db_session):
     agent = _llm_agent(db_session)
     db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: keep"))
