@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
@@ -28,6 +29,30 @@ async def run_decision(session, agent, market, symbols, *, wake_reason=None,
                        brain_decide=brain_decide_default, reflect=run_reflection) -> None:
     cycle_id = uuid4().hex
     await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id, wake_reason)
+
+
+_agent_locks: dict[int, asyncio.Lock] = {}
+
+
+def _agent_lock(agent_id: int) -> asyncio.Lock:
+    lock = _agent_locks.get(agent_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _agent_locks[agent_id] = lock
+    return lock
+
+
+async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=None,
+                               brain_decide=brain_decide_default, reflect=run_reflection) -> bool:
+    """Esegue una decisione sotto il lock dell'agente. Se una decisione è già in corso per
+    questo agente, salta e ritorna False (quella in corso copre la situazione)."""
+    lock = _agent_lock(agent.id)
+    if lock.locked():
+        return False
+    async with lock:
+        await run_decision(session, agent, market, symbols, wake_reason=wake_reason,
+                           brain_decide=brain_decide, reflect=reflect)
+    return True
 
 
 async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id: str, wake_reason=None) -> None:

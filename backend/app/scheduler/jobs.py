@@ -4,7 +4,7 @@ from app.core.config import settings
 from app.db.base import get_session
 from app.db.models import Agent
 from app.market.binance import BinanceClient
-from app.agents.runtime import run_heartbeat, run_decision
+from app.agents.runtime import run_heartbeat, run_decision_guarded
 
 _scheduler: AsyncIOScheduler | None = None
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ async def _decision_tick():
                 n = _universe_size(agent)
                 if n not in symbols_cache:
                     symbols_cache[n] = await market.get_top_symbols("USDT", n)
-                await run_decision(session, agent, market, symbols_cache[n])
+                await run_decision_guarded(session, agent, market, symbols_cache[n])
             except Exception as exc:
                 logger.error("decision tick failed for agent %s: %s", agent.id, exc)
                 session.rollback()

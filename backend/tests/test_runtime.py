@@ -1,7 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from app.db.models import Agent, Event, Position, EquitySnapshot, Trade, AgentMemory
-from app.agents.runtime import run_heartbeat, run_decision
+from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded
 from app.brain.context import CoinSnapshot, MemoryView
 from app.brain.schema import Decision, Action
 
@@ -286,3 +286,26 @@ async def test_reflection_failure_is_isolated(db_session):
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="reflection").one()
     assert "errore" in ev.message and "provider down" in ev.message
     assert db_session.query(Trade).filter_by(agent_id=agent.id, side="SELL").count() == 1
+
+
+async def test_guarded_runs_when_free(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    ran = await run_decision_guarded(db_session, agent, market, ["BTCUSDT"],
+                                     brain_decide=lambda ctx, adapter: Decision(actions=[], note="ok"))
+    assert ran is True
+
+
+async def test_guarded_skips_when_locked(db_session):
+    from app.agents.runtime import _agent_lock
+    agent = _llm_agent(db_session)
+    market = FakeMarketLLM([], Decimal("100"), (Decimal("99"), Decimal("101")))
+    lock = _agent_lock(agent.id)
+    await lock.acquire()
+    try:
+        ran = await run_decision_guarded(db_session, agent, market, ["BTCUSDT"],
+                                         brain_decide=lambda ctx, adapter: Decision(actions=[], note="x"))
+        assert ran is False
+    finally:
+        lock.release()
