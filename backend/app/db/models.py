@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint
+from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -23,6 +23,8 @@ class Agent(Base):
     # (a "vendor/model" slug, e.g. "deepseek/deepseek-v4-flash").
     model_provider: Mapped[str] = mapped_column(String(40), default="openrouter")
     model_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
+    take_profit: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     positions: Mapped[list["Position"]] = relationship(back_populates="agent")
@@ -35,6 +37,7 @@ class Position(Base):
     symbol: Mapped[str] = mapped_column(String(20))
     quantity: Mapped[Decimal] = mapped_column(Numeric(28, 12))
     avg_price: Mapped[Decimal] = mapped_column(Numeric(20, 8))
+    breach_armed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     agent: Mapped["Agent"] = relationship(back_populates="positions")
 
 

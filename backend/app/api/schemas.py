@@ -10,6 +10,8 @@ class AgentCreate(BaseModel):
     duration_days: int = 7
     model_name: str = Field(min_length=1)
     universe: Literal["TOP_50", "TOP_100"] = "TOP_100"
+    stop_loss: Decimal | None = Field(default=None, gt=0, lt=1)
+    take_profit: Decimal | None = Field(default=None, gt=0, le=5)
 
 
 class AgentUpdate(BaseModel):

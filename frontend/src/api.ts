@@ -47,6 +47,8 @@ export type AgentCreateInput = {
   duration_days: number;
   model_name: string;
   universe: "TOP_50" | "TOP_100";
+  stop_loss: number | null;
+  take_profit: number | null;
 };
 
 async function mutate<T>(path: string, method: string, body?: unknown): Promise<T> {
