@@ -415,7 +415,7 @@ svg{ display:block; }
     </div>
 
     <div class="grid g3 reveal" style="margin-top:22px;">
-      <div class="node"><div class="nlabel"><span class="live-dot" style="background:var(--pos)"></span>Battito · 5 min</div><div class="nsub">Loop meccanico, senza LLM: guardrail stop-loss / take-profit e snapshot dell'equity.</div></div>
+      <div class="node"><div class="nlabel"><span class="live-dot" style="background:var(--pos)"></span>Battito · 5 min</div><div class="nsub">Trigger: soglie per-agente; sul breach sveglia l'LLM (non vende).</div></div>
       <div class="node accent"><div class="nlabel"><span style="color:var(--primary)">◆</span> Decisione · 1 h</div><div class="nsub">Loop del cervello: contesto → prompt → LLM → ordini eseguiti contro il book.</div></div>
       <div class="node"><div class="nlabel"><span class="amb">↺</span> Memoria · su evento</div><div class="nsub">Annidato nella decisione: solo quando si chiude un trade, l'agente riscrive la sua memoria.</div></div>
     </div>
@@ -494,14 +494,14 @@ svg{ display:block; }
 <!-- ── 3. loop battito ───────────────────────────────────────────────────── -->
 <section id="battito">
   <div class="wrap">
-    <div class="loop-id"><span class="ln">1</span> BATTITO <span class="clock">· ogni <b>5 minuti</b> · senza LLM</span></div>
+    <div class="loop-id"><span class="ln">1</span> BATTITO <span class="clock">· ogni <b>5 minuti</b> · sveglia l'LLM solo sul breach</span></div>
     <div class="sec-head"><h2>Il riflesso che protegge</h2></div>
-    <p class="sec-intro">Il battito non pensa: applica regole. Per ogni posizione confronta il prezzo attuale col prezzo medio di carico e, se sfora una soglia, vende tutto. Poi registra l'equity. Gira 12 volte più spesso del cervello: è la rete di sicurezza tra una decisione e l'altra.</p>
+    <p class="sec-intro">Il battito non pensa e <strong>non vende</strong>: applica una soglia (per-agente) e, quando una posizione la <em>attraversa</em>, <strong>sveglia l'LLM</strong> perché decida. Registra sempre l'equity. Gira 12 volte più spesso del cervello: è un trigger veloce tra una decisione oraria e l'altra, non più un esecutore meccanico.</p>
 
     <div class="split" style="margin-top:26px;">
       <div>
         <div class="svg-wrap reveal">
-          <svg viewBox="0 0 460 300" role="img" aria-label="Per ogni posizione: si legge il prezzo e si calcola la variazione rispetto al carico. Se è minore o uguale a meno dieci per cento o maggiore o uguale a più venti per cento, si vende tutta la posizione al prezzo bid; altrimenti si tiene. In coda, si registra uno snapshot dell'equity." width="460" height="300">
+          <svg viewBox="0 0 460 300" role="img" aria-label="Per ogni posizione: si legge il prezzo e si calcola la variazione rispetto al carico. Se supera la soglia per-agente di stop-loss o take-profit ed è ancora armata, sveglia l'LLM per una decisione fuori ciclo; altrimenti si tiene. In coda, si registra sempre uno snapshot dell'equity. Il trigger è edge-triggered: scatta una volta sola, poi si ri-arma solo quando la posizione rientra in banda." width="460" height="300">
             <defs>
               <marker id="ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="oklch(0.62 0.012 260)"/></marker>
               <style>
@@ -520,13 +520,13 @@ svg{ display:block; }
             <!-- rombo soglia -->
             <path class="di" d="M230 88 L360 150 L230 212 L100 150 Z"/>
             <text class="t2" x="230" y="142" text-anchor="middle">variazione vs carico</text>
-            <text class="s2" x="230" y="162" text-anchor="middle">≤ −10%  o  ≥ +20% ?</text>
-            <!-- sì → sell -->
+            <text class="s2" x="230" y="162" text-anchor="middle">oltre soglia e armata?</text>
+            <!-- sì → sveglia l'LLM (trigger, non azione) -->
             <line class="l2" x1="360" y1="150" x2="396" y2="150" marker-end="url(#ah2)"/>
-            <text class="s2" x="372" y="142" fill="oklch(0.70 0.19 26)">sì</text>
-            <rect class="bx2" x="300" y="234" width="150" height="50" rx="9" stroke="oklch(0.70 0.19 26 / 0.5)"/>
-            <text class="t2" x="375" y="256" text-anchor="middle" fill="oklch(0.70 0.19 26)">VENDI tutto</text>
-            <text class="s2" x="375" y="272" text-anchor="middle">al bid</text>
+            <text class="s2" x="372" y="142" fill="oklch(0.82 0.13 76)">breach</text>
+            <rect class="bx2" x="300" y="234" width="150" height="50" rx="9" stroke="oklch(0.82 0.13 76 / 0.55)"/>
+            <text class="t2" x="375" y="256" text-anchor="middle" fill="oklch(0.82 0.13 76)">sveglia l'LLM</text>
+            <text class="s2" x="375" y="272" text-anchor="middle">decisione fuori ciclo</text>
             <path class="l2" d="M408 150 V 234" marker-end="url(#ah2)"/>
             <!-- no → hold -->
             <line class="l2" x1="100" y1="150" x2="64" y2="150" marker-end="url(#ah2)"/>
@@ -541,7 +541,11 @@ svg{ display:block; }
       <div>
         <div class="note reveal">
           <svg class="ni" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8v5M12 16h.01M12 3l9 16H3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <div><b>Soglie fisse, uguali per tutti.</b> Stop-loss a <span class="num neg">−10%</span>, take-profit a <span class="num pos">+20%</span>. Sono i default del guardrail, non scelte dell'LLM: il cervello può aprire posizioni rischiose, ma il riflesso le chiude se vanno troppo male (o troppo bene).</div>
+          <div><b>Soglie per-agente, non globali.</b> Stop-loss e take-profit sono default impostati alla creazione (di norma <span class="num neg">−10%</span> / <span class="num pos">+20%</span>), non scelte dell'LLM: quando una posizione li attraversa, il riflesso non vende da solo, sveglia il cervello perché decida.</div>
+        </div>
+        <div class="note reveal" style="margin-top:12px;">
+          <svg class="ni" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 20a8 8 0 100-16 8 8 0 000 16zM12 8v4l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><b>Edge-triggered.</b> Il breach sveglia l'LLM <em>una sola volta</em> mentre la posizione resta fuori banda (<span class="mono">breach_armed</span>). Si ri-arma solo quando il prezzo rientra: niente sveglie ripetute a ogni battito.</div>
         </div>
         <div class="panel reveal" style="margin-top:16px;">
           <h3>In coda al battito</h3>
@@ -833,8 +837,8 @@ quando ho molta cassa"</span></div></div>
       <div class="dial"><div class="dv">1 h</div><div class="dl">intervallo decisione</div><div class="dk">decision_seconds</div></div>
       <div class="dial"><div class="dv">$5</div><div class="dl">trade minimo</div><div class="dk">min_trade_usd</div></div>
       <div class="dial"><div class="dv">$10</div><div class="dl">buy di default</div><div class="dk">capitale / 10</div></div>
-      <div class="dial"><div class="dv pos">+20%</div><div class="dl">take-profit (guardrail)</div><div class="dk">take_profit</div></div>
-      <div class="dial"><div class="dv neg">−10%</div><div class="dl">stop-loss (guardrail)</div><div class="dk">stop_loss</div></div>
+      <div class="dial"><div class="dv pos">+20%</div><div class="dl">take-profit — default form, per-agente</div><div class="dk">agent.take_profit</div></div>
+      <div class="dial"><div class="dv neg">−10%</div><div class="dl">stop-loss — default form, per-agente</div><div class="dk">agent.stop_loss</div></div>
       <div class="dial"><div class="dv">100</div><div class="dl">coin nell'universo</div><div class="dk">TOP_100 · o 50</div></div>
       <div class="dial"><div class="dv">8 / 10 / 5</div><div class="dl">tetti memoria</div><div class="dk">tesi / lezioni / note</div></div>
       <div class="dial"><div class="dv">OpenRouter</div><div class="dl">gateway modelli</div><div class="dk">model_provider</div></div>
