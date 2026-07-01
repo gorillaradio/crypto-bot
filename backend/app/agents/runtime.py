@@ -4,25 +4,49 @@ from uuid import uuid4
 from app.core.config import settings
 from app.db.models import EquitySnapshot, Event, AgentMemory
 from app.trading.engine import execute_buy, execute_sell
-from app.agents.strategy import guardrail_action
+from app.agents.strategy import breached
 from app.brain import decide as brain_decide_default
 from app.brain.context import build_context, MemoryView
 from app.brain.memory import run_reflection, ClosedTrade
 from app.brain.providers import make_adapter
 
 
-async def run_heartbeat(session, agent, market) -> None:
+async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:
+    if trigger_decision is None:
+        trigger_decision = run_decision_guarded
     positions_value = Decimal("0")
+    breached_positions = []
+    fresh = None                                  # (symbol, side, change_pct) del primo breach fresco
     for pos in list(agent.positions):
         last = await market.get_price(pos.symbol)
-        if guardrail_action(pos.avg_price, last) == "SELL":
-            bid, _ask = await market.get_book_ticker(pos.symbol)
-            execute_sell(session, agent, pos.symbol, pos.quantity, bid)
+        positions_value += pos.quantity * last
+        side = breached(pos.avg_price, last, agent.stop_loss, agent.take_profit)
+        if side is None:
+            if not pos.breach_armed:              # rientrata in banda → ri-arma
+                pos.breach_armed = True
         else:
-            positions_value += pos.quantity * last
+            breached_positions.append(pos)
+            if pos.breach_armed and fresh is None:
+                change_pct = (last - pos.avg_price) / pos.avg_price * Decimal("100")
+                fresh = (pos.symbol, side, change_pct)
     equity = agent.cash_usd + positions_value
     session.add(EquitySnapshot(agent_id=agent.id, equity_usd=equity))
     session.commit()
+
+    if fresh is None:
+        return
+    symbol, side, change_pct = fresh
+    threshold = agent.stop_loss if side == "stop" else agent.take_profit
+    label = "stop" if side == "stop" else "take-profit"
+    wake_reason = (f"Risveglio fuori ciclo: {symbol} a {change_pct:+.2f}%, oltre la tua "
+                   f"soglia di {label} {threshold * Decimal('100'):.2f}%. Rivaluta.")
+    n = 100 if agent.universe == "TOP_100" else 50
+    symbols = await market.get_top_symbols("USDT", n)
+    triggered = await trigger_decision(session, agent, market, symbols, wake_reason=wake_reason)
+    if triggered:
+        for p in breached_positions:              # l'LLM ha visto l'intero portafoglio: disarma tutte
+            p.breach_armed = False
+        session.commit()
 
 
 async def run_decision(session, agent, market, symbols, *, wake_reason=None,

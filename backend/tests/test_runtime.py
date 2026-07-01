@@ -21,6 +21,14 @@ class FakeMarketLLM:
     async def get_book_ticker(self, symbol): return self._book
 
 
+class FakeMarketHB:
+    """Market per l'heartbeat: prezzo unico per ogni simbolo + get_top_symbols."""
+    def __init__(self, price, symbols=None):
+        self._price, self._symbols = price, symbols or ["BTCUSDT"]
+    async def get_price(self, symbol): return self._price
+    async def get_top_symbols(self, quote, n): return self._symbols
+
+
 def _agent(session, cash="100"):
     a = Agent(name="R", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
@@ -38,6 +46,14 @@ def _llm_agent(session):
     return a
 
 
+def _armed_agent(session, stop="0.10", take="0.20"):
+    a = Agent(name="H", duration_start=datetime.now(timezone.utc),
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+              cash_usd=Decimal("0"), stop_loss=Decimal(stop), take_profit=Decimal(take))
+    session.add(a); session.commit()
+    return a
+
+
 async def test_heartbeat_writes_equity_snapshot(db_session):
     agent = _agent(db_session, "100")
     market = FakeMarket(price=Decimal("100"), book=(Decimal("99"), Decimal("101")))
@@ -46,28 +62,88 @@ async def test_heartbeat_writes_equity_snapshot(db_session):
     assert snap.equity_usd == Decimal("100")  # solo cash, nessuna posizione
 
 
-async def test_heartbeat_sells_on_stop_loss(db_session):
-    agent = _agent(db_session, "0")
+async def test_heartbeat_within_band_saves_equity_no_trigger(db_session):
+    agent = _armed_agent(db_session)
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.commit()
-    # last price 80 → -20% → stop loss → vende al bid 80
-    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")))
-    await run_heartbeat(db_session, agent, market)
-    trades = db_session.query(Trade).filter_by(agent_id=agent.id, side="SELL").all()
-    assert len(trades) == 1
-
-
-async def test_heartbeat_equity_includes_sell_proceeds(db_session):
-    agent = _agent(db_session, "0")
-    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
-                            quantity=Decimal("1"), avg_price=Decimal("100")))
-    db_session.commit()
-    # last price 80 → -20% → stop loss → sells at bid 80, fee 0.1% → cash = 79.92
-    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")))
-    await run_heartbeat(db_session, agent, market)
+    market = FakeMarketHB(price=Decimal("105"))          # +5%, in banda
+    calls = []
+    async def fake_trigger(*a, **k): calls.append(1); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert calls == []
     snap = db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).one()
-    assert snap.equity_usd == Decimal("79.92")
+    assert snap.equity_usd == Decimal("105")
+
+
+async def test_heartbeat_fresh_breach_triggers_disarms_no_sell(db_session):
+    agent = _armed_agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    market = FakeMarketHB(price=Decimal("85"))           # -15% → stop
+    calls = []
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None):
+        calls.append(wake_reason); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert len(calls) == 1 and "stop" in calls[0] and "BTCUSDT" in calls[0]
+    assert db_session.query(Trade).filter_by(agent_id=agent.id).count() == 0   # nessuna vendita meccanica
+    pos = db_session.query(Position).filter_by(agent_id=agent.id).one()
+    assert pos.breach_armed is False
+
+
+async def test_heartbeat_disarmed_breach_does_not_retrigger(db_session):
+    agent = _armed_agent(db_session)
+    p = Position(agent_id=agent.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100"))
+    p.breach_armed = False
+    db_session.add(p); db_session.commit()
+    market = FakeMarketHB(price=Decimal("85"))           # ancora oltre soglia, ma disarmata
+    calls = []
+    async def fake_trigger(*a, **k): calls.append(1); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert calls == []
+
+
+async def test_heartbeat_rearms_when_back_in_band(db_session):
+    agent = _armed_agent(db_session)
+    p = Position(agent_id=agent.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100"))
+    p.breach_armed = False
+    db_session.add(p); db_session.commit()
+    market = FakeMarketHB(price=Decimal("100"))          # rientrata in banda
+    async def fake_trigger(*a, **k): return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    db_session.refresh(p)
+    assert p.breach_armed is True
+
+
+async def test_heartbeat_no_thresholds_never_triggers(db_session):
+    a = Agent(name="Blind", duration_start=datetime.now(timezone.utc),
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+    db_session.add(a); db_session.commit()
+    db_session.add(Position(agent_id=a.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    market = FakeMarketHB(price=Decimal("50"))           # -50%, ma soglie None
+    calls = []
+    async def fake_trigger(*a, **k): calls.append(1); return True
+    await run_heartbeat(db_session, a, market, trigger_decision=fake_trigger)
+    assert calls == []
+
+
+async def test_heartbeat_armed_position_triggers_despite_other_disarmed(db_session):
+    agent = _armed_agent(db_session)
+    p1 = Position(agent_id=agent.id, symbol="AAAUSDT", quantity=Decimal("1"), avg_price=Decimal("100"))
+    p1.breach_armed = False                              # già svegliato per questa
+    p2 = Position(agent_id=agent.id, symbol="BBBUSDT", quantity=Decimal("1"), avg_price=Decimal("100"))
+    db_session.add_all([p1, p2]); db_session.commit()
+    market = FakeMarketHB(price=Decimal("85"), symbols=["AAAUSDT", "BBBUSDT"])  # entrambe -15%
+    calls = []
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None):
+        calls.append(wake_reason); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert len(calls) == 1 and "BBBUSDT" in calls[0]     # la posizione armata sveglia
+    db_session.refresh(p1); db_session.refresh(p2)
+    assert p1.breach_armed is False and p2.breach_armed is False  # entrambe disarmate al risveglio
 
 
 async def test_llm_path_executes_buy_with_guardrails(db_session):
@@ -218,19 +294,6 @@ async def test_two_cycles_get_distinct_cycle_ids(db_session):
                            brain_decide=lambda ctx, adapter: decision)
     ids = [e.cycle_id for e in db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").all()]
     assert len(ids) == 2 and ids[0] != ids[1]
-
-
-async def test_heartbeat_sell_event_has_no_cycle_id(db_session):
-    """A guardrail liquidation in the heartbeat is not part of a decision cycle,
-    so its trade event must have a null cycle_id (rendered as its own group)."""
-    agent = _agent(db_session, "0")
-    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
-                            quantity=Decimal("1"), avg_price=Decimal("100")))
-    db_session.commit()
-    market = FakeMarket(price=Decimal("80"), book=(Decimal("80"), Decimal("81")))
-    await run_heartbeat(db_session, agent, market)
-    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="trade").one()
-    assert ev.cycle_id is None
 
 
 async def test_no_reflection_when_no_sell(db_session):
