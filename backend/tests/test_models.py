@@ -57,3 +57,31 @@ def test_agent_memory_unique_per_section(db_session):
     db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bear"))
     with pytest.raises(IntegrityError):
         db_session.commit()
+
+
+def _mk_agent(session, **over):
+    kw = dict(name="T", duration_start=datetime.now(timezone.utc),
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+              cash_usd=Decimal("100"))
+    kw.update(over)
+    a = Agent(**kw)
+    session.add(a); session.commit()
+    return a
+
+
+def test_agent_accepts_risk_thresholds(db_session):
+    a = _mk_agent(db_session, stop_loss=Decimal("0.10"), take_profit=Decimal("0.20"))
+    assert a.stop_loss == Decimal("0.10")
+    assert a.take_profit == Decimal("0.20")
+
+
+def test_agent_thresholds_default_none(db_session):
+    a = _mk_agent(db_session)
+    assert a.stop_loss is None and a.take_profit is None
+
+
+def test_position_breach_armed_defaults_true(db_session):
+    a = _mk_agent(db_session)
+    p = Position(agent_id=a.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100"))
+    db_session.add(p); db_session.commit()
+    assert p.breach_armed is True
