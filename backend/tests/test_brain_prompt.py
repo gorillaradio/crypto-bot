@@ -44,3 +44,18 @@ def test_prompt_omits_memory_block_when_empty():
     system, user = render_prompt(_ctx())       # _ctx() has no memory
     assert "Your memory" not in user
     assert "prior reflection" not in system    # memory hint absent when memory is empty
+
+
+def test_render_prompt_surfaces_wake_reason():
+    ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
+                        universe=[], recent_events=[],
+                        wake_reason="SOLUSDT a -12.30%, oltre la tua soglia di stop")
+    _system, user = render_prompt(ctx)
+    assert "SOLUSDT a -12.30%, oltre la tua soglia di stop" in user
+
+
+def test_render_prompt_no_wake_marker_when_none():
+    ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
+                        universe=[], recent_events=[])
+    _system, user = render_prompt(ctx)
+    assert "⚠" not in user
