@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from app.db.models import Agent, Event, Position, EquitySnapshot, Trade, AgentMemory, DecisionRecord
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, build_agent_context, universe_size
 from app.brain.context import CoinSnapshot, MemoryView
+from app.brain.memory import ReflectionResult
 from app.brain.schema import Decision, Action, DecisionResult
 
 
@@ -252,7 +253,7 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
     calls = []
     def fake_reflect(memory, closed, held_symbols, instructions, adapter):
         calls.append(closed)
-        return MemoryView(coin_theses="BTC: took profit", trade_lessons="green exit")
+        return ReflectionResult(MemoryView(coin_theses="BTC: took profit", trade_lessons="green exit"))
 
     await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: DecisionResult(decision), reflect=fake_reflect)
@@ -264,6 +265,29 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
     assert row.content == "BTC: took profit"
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="reflection").one()
     assert "memoria" in ev.message.lower()
+
+
+async def test_reflection_call_is_recorded(db_session):
+    agent = _llm_agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
+    market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
+    decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
+    refl = ReflectionResult(MemoryView(coin_theses="BTC: booked"),
+                            system="RSYS", user="RUSR", raw='{"coin_theses":["BTC: booked"]}',
+                            parse_status="ok", latency_ms=7)
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=lambda *a, **k: refl)
+    recs = db_session.query(DecisionRecord).filter_by(agent_id=agent.id).all()
+    assert sorted(r.kind for r in recs) == ["decision", "reflection"]
+    rr = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="reflection").one()
+    dd = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="decision").one()
+    assert rr.parse_status == "ok" and rr.raw_response == '{"coin_theses":["BTC: booked"]}'
+    assert rr.latency_ms == 7 and rr.trigger == "schedule"
+    assert rr.cycle_id == dd.cycle_id             # decision + reflection share the cycle
 
 
 async def test_decision_events_share_one_cycle_id(db_session):
@@ -304,7 +328,7 @@ async def test_no_reflection_when_no_sell(db_session):
     calls = []
     await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: DecisionResult(decision),
-                       reflect=lambda *a, **k: calls.append(1) or MemoryView())
+                       reflect=lambda *a, **k: calls.append(1) or ReflectionResult(MemoryView()))
     assert calls == []
     assert db_session.query(AgentMemory).filter_by(agent_id=agent.id).count() == 0
 

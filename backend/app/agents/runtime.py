@@ -1,4 +1,6 @@
 import asyncio
+import json
+from dataclasses import asdict
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
@@ -7,7 +9,7 @@ from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
 from app.brain import evaluate as brain_decide_default
 from app.brain.context import build_context, MemoryView
-from app.brain.memory import run_reflection, ClosedTrade
+from app.brain.memory import run_reflection_result, ClosedTrade
 from app.brain.providers import make_adapter
 
 
@@ -81,7 +83,7 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
 
 
 async def run_decision(session, agent, market, symbols, *, wake_reason=None,
-                       brain_decide=brain_decide_default, reflect=run_reflection) -> None:
+                       brain_decide=brain_decide_default, reflect=run_reflection_result) -> None:
     cycle_id = uuid4().hex
     await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id, wake_reason)
 
@@ -98,7 +100,7 @@ def _agent_lock(agent_id: int) -> asyncio.Lock:
 
 
 async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=None,
-                               brain_decide=brain_decide_default, reflect=run_reflection) -> bool:
+                               brain_decide=brain_decide_default, reflect=run_reflection_result) -> bool:
     """Esegue una decisione sotto il lock dell'agente. Se una decisione è già in corso per
     questo agente, salta e ritorna False (quella in corso copre la situazione)."""
     lock = _agent_lock(agent.id)
@@ -177,10 +179,19 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
     if closed_trades:
         try:
             held_symbols = [p.symbol for p in agent.positions]
-            new_mem = reflect(ctx.memory, closed_trades, held_symbols, agent.instructions, adapter)
-            _persist_memory(session, agent.id, new_mem)
-            session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
-                              message="memoria aggiornata dopo trade chiuso"))
+            rr = reflect(ctx.memory, closed_trades, held_symbols, agent.instructions, adapter)
+            _record_llm_call(session, agent, cycle_id, "reflection", trigger,
+                             system=rr.system, user=rr.user, raw=rr.raw,
+                             parsed_output=(json.dumps(asdict(rr.memory))
+                                            if rr.parse_status == "ok" else None),
+                             parse_status=rr.parse_status, latency_ms=rr.latency_ms)
+            if rr.parse_status == "ok":
+                _persist_memory(session, agent.id, rr.memory)
+                session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
+                                  message="memoria aggiornata dopo trade chiuso"))
+            else:
+                session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
+                                  message="reflection: risposta non valida, memoria invariata"))
         except Exception as exc:
             session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                               message=f"reflection: errore — {exc}"))
