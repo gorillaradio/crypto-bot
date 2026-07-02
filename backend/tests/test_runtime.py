@@ -202,6 +202,7 @@ async def test_llm_data_gathering_error_writes_event_no_trade(db_session):
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
     assert "errore" in ev.message
     assert "network timeout" in ev.message
+    assert db_session.query(DecisionRecord).filter_by(agent_id=agent.id).count() == 0
 
 
 async def test_llm_path_sells_held_fraction(db_session):
@@ -287,6 +288,7 @@ async def test_reflection_call_is_recorded(db_session):
     dd = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="decision").one()
     assert rr.parse_status == "ok" and rr.raw_response == '{"coin_theses":["BTC: booked"]}'
     assert rr.latency_ms == 7 and rr.trigger == "schedule"
+    assert rr.system_prompt == "RSYS" and rr.user_prompt == "RUSR"
     assert rr.cycle_id == dd.cycle_id             # decision + reflection share the cycle
 
 
