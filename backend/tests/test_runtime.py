@@ -1,9 +1,9 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from app.db.models import Agent, Event, Position, EquitySnapshot, Trade, AgentMemory
+from app.db.models import Agent, Event, Position, EquitySnapshot, Trade, AgentMemory, DecisionRecord
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, build_agent_context, universe_size
 from app.brain.context import CoinSnapshot, MemoryView
-from app.brain.schema import Decision, Action
+from app.brain.schema import Decision, Action, DecisionResult
 
 
 class FakeMarket:
@@ -156,7 +156,7 @@ async def test_llm_path_executes_buy_with_guardrails(db_session):
         Action(type="BUY", symbol="NOTINUNIVERSE", usd_amount=Decimal("10"), rationale="x"),     # not in universe
     ], note="testing")
     await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: decision)
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
     buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
     assert len(buys) == 1                            # only the valid $50 buy
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
@@ -174,7 +174,7 @@ async def test_llm_all_in_buy_clamps_for_fee_and_executes(db_session):
         Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("100"), rationale="all-in"),
     ], note="fomo")
     await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: decision)
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
     buys = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
     assert len(buys) == 1                            # the all-in executed
     pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
@@ -212,7 +212,7 @@ async def test_llm_path_sells_held_fraction(db_session):
     market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
     decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("0.5"))], note="trim")
     await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: decision)
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
     pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
     assert pos.quantity == Decimal("0.5")
 
@@ -229,7 +229,7 @@ async def test_llm_buy_then_sell_same_symbol_same_cycle(db_session):
         Action(type="SELL", symbol="NEWUSDT", fraction=Decimal("1"),    rationale="close"),
     ], note="buy-then-sell")
     await run_decision(db_session, agent, market, ["NEWUSDT"],
-                       brain_decide=lambda ctx, adapter: decision)
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
     # Both the BUY and the SELL should have executed
     buys  = db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").all()
     sells = db_session.query(Trade).filter_by(agent_id=agent.id, side="SELL").all()
@@ -255,7 +255,7 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
         return MemoryView(coin_theses="BTC: took profit", trade_lessons="green exit")
 
     await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: decision, reflect=fake_reflect)
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision), reflect=fake_reflect)
 
     assert len(calls) == 1                       # exactly one reflection call
     assert calls[0][0].symbol == "BTCUSDT"
@@ -276,7 +276,7 @@ async def test_decision_events_share_one_cycle_id(db_session):
         Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"), rationale="dip"),
     ], note="in")
     await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: decision)
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
     events = db_session.query(Event).filter_by(agent_id=agent.id).all()
     kinds = {e.kind for e in events}
     assert {"decision", "reasoning", "trade"} <= kinds   # all three present
@@ -291,7 +291,7 @@ async def test_two_cycles_get_distinct_cycle_ids(db_session):
     decision = Decision(actions=[], note="hold")
     for _ in range(2):
         await run_decision(db_session, agent, market, ["BTCUSDT"],
-                           brain_decide=lambda ctx, adapter: decision)
+                           brain_decide=lambda ctx, adapter: DecisionResult(decision))
     ids = [e.cycle_id for e in db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").all()]
     assert len(ids) == 2 and ids[0] != ids[1]
 
@@ -303,7 +303,7 @@ async def test_no_reflection_when_no_sell(db_session):
     decision = Decision(actions=[Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"))], note="in")
     calls = []
     await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: decision,
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
                        reflect=lambda *a, **k: calls.append(1) or MemoryView())
     assert calls == []
     assert db_session.query(AgentMemory).filter_by(agent_id=agent.id).count() == 0
@@ -317,7 +317,7 @@ async def test_run_decision_passes_wake_reason_and_marks_event(db_session):
 
     def capture(ctx, adapter):
         captured["wake"] = ctx.wake_reason
-        return Decision(actions=[], note="held")
+        return DecisionResult(Decision(actions=[], note="held"))
 
     await run_decision(db_session, agent, market, ["BTCUSDT"],
                        wake_reason="BTCUSDT -12% oltre stop", brain_decide=capture)
@@ -340,7 +340,7 @@ async def test_reflection_failure_is_isolated(db_session):
         raise RuntimeError("provider down")
 
     await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: decision, reflect=boom)
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision), reflect=boom)
 
     # existing memory untouched
     row = db_session.query(AgentMemory).filter_by(agent_id=agent.id, section="coin_theses").one()
@@ -356,7 +356,7 @@ async def test_guarded_runs_when_free(db_session):
     snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
     market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
     ran = await run_decision_guarded(db_session, agent, market, ["BTCUSDT"],
-                                     brain_decide=lambda ctx, adapter: Decision(actions=[], note="ok"))
+                                     brain_decide=lambda ctx, adapter: DecisionResult(Decision(actions=[], note="ok")))
     assert ran is True
 
 
@@ -368,10 +368,55 @@ async def test_guarded_skips_when_locked(db_session):
     await lock.acquire()
     try:
         ran = await run_decision_guarded(db_session, agent, market, ["BTCUSDT"],
-                                         brain_decide=lambda ctx, adapter: Decision(actions=[], note="x"))
+                                         brain_decide=lambda ctx, adapter: DecisionResult(Decision(actions=[], note="x")))
         assert ran is False
     finally:
         lock.release()
+
+
+async def test_run_decision_writes_decision_record(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    result = DecisionResult(Decision(actions=[], note="hold"),
+                            system="SYS", user="USR", raw='{"actions":[],"note":"hold"}',
+                            parse_status="ok", latency_ms=42)
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: result)
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id).one()
+    assert rec.kind == "decision" and rec.trigger == "schedule"
+    assert rec.parse_status == "ok"
+    assert rec.raw_response == '{"actions":[],"note":"hold"}'
+    assert rec.system_prompt == "SYS" and rec.user_prompt == "USR"
+    assert rec.model_provider == "openrouter"
+    assert rec.model_name == "deepseek/deepseek-v4-flash"
+    assert rec.latency_ms == 42
+    assert rec.cycle_id is not None
+    assert '"note":"hold"' in rec.parsed_output      # parsed Decision serialized
+
+
+async def test_decision_record_trigger_is_breach_on_wake(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       wake_reason="BTCUSDT -12% oltre stop",
+                       brain_decide=lambda ctx, adapter: DecisionResult(Decision(actions=[], note="held")))
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id).one()
+    assert rec.trigger == "breach"
+
+
+async def test_decision_record_shares_cycle_id_with_events(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[Action(type="BUY", symbol="BTCUSDT",
+                                        usd_amount=Decimal("50"), rationale="dip")], note="in")
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id).one()
+    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
+    assert rec.cycle_id == ev.cycle_id and rec.cycle_id is not None
 
 
 async def test_build_agent_context_assembles_from_live_data(db_session):

@@ -2,10 +2,10 @@ import asyncio
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
-from app.db.models import EquitySnapshot, Event, AgentMemory
+from app.db.models import EquitySnapshot, Event, AgentMemory, DecisionRecord
 from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
-from app.brain import decide as brain_decide_default
+from app.brain import evaluate as brain_decide_default
 from app.brain.context import build_context, MemoryView
 from app.brain.memory import run_reflection, ClosedTrade
 from app.brain.providers import make_adapter
@@ -115,12 +115,15 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         ctx = await build_agent_context(session, agent, market, symbols, wake_reason=wake_reason)
         universe_symbols = {c.symbol for c in ctx.universe}
         adapter = make_adapter(agent.model_provider, agent.model_name)
-        decision = brain_decide(ctx, adapter)
+        result = brain_decide(ctx, adapter)
     except Exception as exc:
         session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
                           message=f"ciclo decisione (LLM): errore — {exc}"))
         session.commit()
         return
+
+    decision = result.decision
+    trigger = "breach" if wake_reason else "schedule"
 
     held = {p.symbol: p for p in agent.positions}
     actions = skipped = errors = 0
@@ -163,6 +166,10 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
             errors += 1
     note = decision.note or "(no note)"
     kind_label = "ciclo decisione fuori ciclo (LLM)" if wake_reason else "ciclo decisione (LLM)"
+    _record_llm_call(session, agent, cycle_id, "decision", trigger,
+                     system=result.system, user=result.user, raw=result.raw,
+                     parsed_output=decision.model_dump_json(),
+                     parse_status=result.parse_status, latency_ms=result.latency_ms)
     session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
                       message=f"{kind_label}: {note} — {actions} operazioni, {skipped} saltate, {errors} errori"))
     session.commit()
@@ -183,6 +190,16 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
 def _append_rationale(session, agent, rationale: str, cycle_id: str | None = None) -> None:
     if rationale:
         session.add(Event(agent_id=agent.id, kind="reasoning", cycle_id=cycle_id, message=rationale))
+
+
+def _record_llm_call(session, agent, cycle_id, kind, trigger, *,
+                     system, user, raw, parsed_output, parse_status, latency_ms) -> None:
+    session.add(DecisionRecord(
+        agent_id=agent.id, cycle_id=cycle_id, kind=kind, trigger=trigger,
+        system_prompt=system, user_prompt=user, raw_response=raw,
+        parsed_output=parsed_output, parse_status=parse_status,
+        model_provider=agent.model_provider, model_name=agent.model_name,
+        latency_ms=latency_ms))
 
 
 def _persist_memory(session, agent_id, mem: MemoryView) -> None:
