@@ -210,3 +210,33 @@ def test_delete_agent_404_when_missing(db_session):
     client = _client(db_session)
     resp = client.delete("/api/agents/9999")
     assert resp.status_code == 404
+
+
+def test_create_agent_persists_thresholds(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="Risk", stop_loss=0.15, take_profit=0.30)
+    assert resp.status_code == 201
+    a = db_session.query(Agent).filter_by(name="Risk").one()
+    # float→Decimal può introdurre imprecisione; in Postgres Numeric(5,4) arrotonda. Tolleranza:
+    assert a.stop_loss is not None and abs(a.stop_loss - Decimal("0.15")) < Decimal("0.0005")
+    assert a.take_profit is not None and abs(a.take_profit - Decimal("0.30")) < Decimal("0.0005")
+
+
+def test_create_agent_thresholds_optional(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="NoRisk")
+    assert resp.status_code == 201
+    a = db_session.query(Agent).filter_by(name="NoRisk").one()
+    assert a.stop_loss is None and a.take_profit is None
+
+
+def test_create_agent_rejects_stop_loss_ge_1(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="Bad", stop_loss=1.5)
+    assert resp.status_code == 422
+
+
+def test_create_agent_rejects_nonpositive_take_profit(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="Bad2", take_profit=0)
+    assert resp.status_code == 422

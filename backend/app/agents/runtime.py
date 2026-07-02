@@ -1,36 +1,85 @@
+import asyncio
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
 from app.db.models import EquitySnapshot, Event, AgentMemory
 from app.trading.engine import execute_buy, execute_sell
-from app.agents.strategy import guardrail_action
+from app.agents.strategy import breached
 from app.brain import decide as brain_decide_default
 from app.brain.context import build_context, MemoryView
 from app.brain.memory import run_reflection, ClosedTrade
 from app.brain.providers import make_adapter
 
 
-async def run_heartbeat(session, agent, market) -> None:
+async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:
+    if trigger_decision is None:
+        trigger_decision = run_decision_guarded
     positions_value = Decimal("0")
+    breached_positions = []
+    fresh = None                                  # (symbol, side, change_pct) del primo breach fresco
     for pos in list(agent.positions):
         last = await market.get_price(pos.symbol)
-        if guardrail_action(pos.avg_price, last) == "SELL":
-            bid, _ask = await market.get_book_ticker(pos.symbol)
-            execute_sell(session, agent, pos.symbol, pos.quantity, bid)
+        positions_value += pos.quantity * last
+        side = breached(pos.avg_price, last, agent.stop_loss, agent.take_profit)
+        if side is None:
+            if not pos.breach_armed:              # rientrata in banda → ri-arma
+                pos.breach_armed = True
         else:
-            positions_value += pos.quantity * last
+            breached_positions.append(pos)
+            if pos.breach_armed and fresh is None:
+                change_pct = (last - pos.avg_price) / pos.avg_price * Decimal("100")
+                fresh = (pos.symbol, side, change_pct)
     equity = agent.cash_usd + positions_value
     session.add(EquitySnapshot(agent_id=agent.id, equity_usd=equity))
     session.commit()
 
+    if fresh is None:
+        return
+    symbol, side, change_pct = fresh
+    threshold = agent.stop_loss if side == "stop" else agent.take_profit
+    label = "stop" if side == "stop" else "take-profit"
+    wake_reason = (f"Risveglio fuori ciclo: {symbol} a {change_pct:+.2f}%, oltre la tua "
+                   f"soglia di {label} {threshold * Decimal('100'):.2f}%. Rivaluta.")
+    n = 100 if agent.universe == "TOP_100" else 50
+    symbols = await market.get_top_symbols("USDT", n)
+    triggered = await trigger_decision(session, agent, market, symbols, wake_reason=wake_reason)
+    if triggered:
+        for p in breached_positions:              # l'LLM ha visto l'intero portafoglio: disarma tutte
+            p.breach_armed = False
+        session.commit()
 
-async def run_decision(session, agent, market, symbols, *,
+
+async def run_decision(session, agent, market, symbols, *, wake_reason=None,
                        brain_decide=brain_decide_default, reflect=run_reflection) -> None:
     cycle_id = uuid4().hex
-    await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id)
+    await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id, wake_reason)
 
 
-async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id: str) -> None:
+_agent_locks: dict[int, asyncio.Lock] = {}
+
+
+def _agent_lock(agent_id: int) -> asyncio.Lock:
+    lock = _agent_locks.get(agent_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _agent_locks[agent_id] = lock
+    return lock
+
+
+async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=None,
+                               brain_decide=brain_decide_default, reflect=run_reflection) -> bool:
+    """Esegue una decisione sotto il lock dell'agente. Se una decisione è già in corso per
+    questo agente, salta e ritorna False (quella in corso copre la situazione)."""
+    lock = _agent_lock(agent.id)
+    if lock.locked():
+        return False
+    async with lock:
+        await run_decision(session, agent, market, symbols, wake_reason=wake_reason,
+                           brain_decide=brain_decide, reflect=reflect)
+    return True
+
+
+async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id: str, wake_reason=None) -> None:
     try:
         universe = await market.get_universe_snapshot(symbols)
         universe_symbols = {c.symbol for c in universe}
@@ -53,7 +102,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         )
         ctx = build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                             holdings=holdings, universe=universe, recent_events=recent,
-                            memory=memory)
+                            memory=memory, wake_reason=wake_reason)
         adapter = make_adapter(agent.model_provider, agent.model_name)
         decision = brain_decide(ctx, adapter)
     except Exception as exc:
@@ -102,8 +151,9 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         except Exception:
             errors += 1
     note = decision.note or "(no note)"
+    kind_label = "ciclo decisione fuori ciclo (LLM)" if wake_reason else "ciclo decisione (LLM)"
     session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
-                      message=f"ciclo decisione (LLM): {note} — {actions} operazioni, {skipped} saltate, {errors} errori"))
+                      message=f"{kind_label}: {note} — {actions} operazioni, {skipped} saltate, {errors} errori"))
     session.commit()
 
     if closed_trades:

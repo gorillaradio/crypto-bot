@@ -39,6 +39,8 @@ type FormValues = {
   durationDays: number;
   modelName: string;
   universe: "TOP_50" | "TOP_100";
+  stopLoss: number | null;
+  takeProfit: number | null;
 };
 
 export function AgentFormModal(props: Props) {
@@ -52,6 +54,8 @@ export function AgentFormModal(props: Props) {
       durationDays: z.number(),
       modelName: z.string().trim(),
       universe: z.enum(["TOP_50", "TOP_100"]),
+      stopLoss: z.number().gt(0).lt(100).nullable(),
+      takeProfit: z.number().gt(0).max(500).nullable(),
     })
     .superRefine((v, ctx) => {
       if (isEdit) return;
@@ -70,6 +74,8 @@ export function AgentFormModal(props: Props) {
       durationDays: 7,
       modelName: "",
       universe: "TOP_100",
+      stopLoss: 10,
+      takeProfit: 20,
     },
   });
   const valid = schema.safeParse(form.watch()).success;
@@ -87,6 +93,8 @@ export function AgentFormModal(props: Props) {
           duration_days: values.durationDays,
           model_name: values.modelName,
           universe: values.universe,
+          stop_loss: values.stopLoss == null ? null : values.stopLoss / 100,
+          take_profit: values.takeProfit == null ? null : values.takeProfit / 100,
         });
         props.onSaved(a);
       }
@@ -159,6 +167,28 @@ export function AgentFormModal(props: Props) {
                         <SelectItem value="TOP_50">Top 50</SelectItem>
                       </SelectContent>
                     </Select>
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="stopLoss" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Stop-loss (%) — vuoto = disattivato</FormLabel>
+                    <FormControl>
+                      <Input type="number" min={0} step="any" value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="takeProfit" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Take-profit (%) — vuoto = disattivato</FormLabel>
+                    <FormControl>
+                      <Input type="number" min={0} step="any" value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))} />
+                    </FormControl>
+                    <FormMessage />
                   </FormItem>
                 )} />
               </>

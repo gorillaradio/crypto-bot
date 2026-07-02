@@ -31,3 +31,15 @@ def test_build_context_computes_equity_and_pnl():
     assert ctx.positions[0].unrealized_pnl_pct == Decimal("20")  # (120-100)/100*100
     assert ctx.universe[0].symbol == "BTCUSDT"
     assert ctx.recent_events == ["BUY 0.5 BTCUSDT"]
+
+
+def test_build_context_carries_wake_reason():
+    ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
+                        universe=[], recent_events=[], wake_reason="SOLUSDT -12%")
+    assert ctx.wake_reason == "SOLUSDT -12%"
+
+
+def test_build_context_wake_reason_defaults_none():
+    ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
+                        universe=[], recent_events=[])
+    assert ctx.wake_reason is None

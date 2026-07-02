@@ -18,7 +18,10 @@ Numbers must be JSON strings. Output JSON only, no prose."""
 def render_prompt(ctx: DecisionContext) -> tuple[str, str]:
     system = _SYSTEM.format(instructions=ctx.instructions or "(none provided)")
 
-    lines = [f"Cash: ${ctx.cash_usd}", f"Equity: ${ctx.equity_usd}", "", "Open positions:"]
+    lines = []
+    if ctx.wake_reason:
+        lines += [f"⚠ {ctx.wake_reason}", ""]
+    lines += [f"Cash: ${ctx.cash_usd}", f"Equity: ${ctx.equity_usd}", "", "Open positions:"]
     if ctx.positions:
         for p in ctx.positions:
             lines.append(f"  {p.symbol}: qty {p.quantity} @ avg ${p.avg_price}, "
