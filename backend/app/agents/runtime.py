@@ -4,13 +4,14 @@ from dataclasses import asdict
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
-from app.db.models import EquitySnapshot, Event, AgentMemory, DecisionRecord
+from app.db.models import EquitySnapshot, Event, AgentMemory, DecisionRecord, BenchmarkBasis, BenchmarkSnapshot
 from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
 from app.brain import evaluate as brain_decide_default
 from app.brain.context import build_context, MemoryView
 from app.brain.memory import run_reflection_result, ClosedTrade
 from app.brain.providers import make_adapter
+from app.eval.benchmarks import compute_benchmark_equities
 
 
 def universe_size(agent) -> int:
@@ -65,6 +66,8 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
     equity = agent.cash_usd + positions_value
     session.add(EquitySnapshot(agent_id=agent.id, equity_usd=equity))
     session.commit()
+
+    await record_benchmark_snapshot(session, agent, market)
 
     if fresh is None:
         return
@@ -223,3 +226,36 @@ def _persist_memory(session, agent_id, mem: MemoryView) -> None:
             session.add(AgentMemory(agent_id=agent_id, section=section, content=content))
         else:
             row.content = content
+
+
+async def record_benchmark_snapshot(session, agent, market) -> None:
+    """Write the ghost-benchmark equities for this beat. Self-isolating: on any error
+    it rolls back its own work and returns — benchmarks are telemetry, never a reason
+    to break the heartbeat."""
+    try:
+        basis = session.query(BenchmarkBasis).filter_by(agent_id=agent.id).first()
+        if basis is None:
+            symbols = await market.get_top_symbols("USDT", universe_size(agent))
+            snap = await market.get_universe_snapshot(symbols)
+            start_prices = {c.symbol: c.price for c in snap}
+            basis = BenchmarkBasis(
+                agent_id=agent.id,
+                universe_json=json.dumps(symbols),
+                start_prices_json=json.dumps({s: str(p) for s, p in start_prices.items()}),
+                initial_capital=settings.initial_capital_usd)
+            session.add(basis)
+            now_prices = start_prices
+            universe = symbols
+        else:
+            universe = json.loads(basis.universe_json)
+            start_prices = {s: Decimal(p) for s, p in json.loads(basis.start_prices_json).items()}
+            snap = await market.get_universe_snapshot(universe)
+            now_prices = {c.symbol: c.price for c in snap}
+        equities = compute_benchmark_equities(
+            initial=basis.initial_capital, universe=universe,
+            start_prices=start_prices, now_prices=now_prices, seed=agent.id)
+        for kind, equity in equities.items():
+            session.add(BenchmarkSnapshot(agent_id=agent.id, kind=kind, equity_usd=equity))
+        session.commit()
+    except Exception:
+        session.rollback()

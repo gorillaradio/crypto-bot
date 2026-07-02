@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from app.db.models import Agent, Event, Position, EquitySnapshot, Trade, AgentMemory, DecisionRecord
+from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, AgentMemory,
+                           DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, build_agent_context, universe_size
 from app.brain.context import CoinSnapshot, MemoryView
 from app.brain.memory import ReflectionResult
@@ -12,6 +13,9 @@ class FakeMarket:
         self._price, self._book = price, book
     async def get_price(self, symbol): return self._price
     async def get_book_ticker(self, symbol): return self._book
+    async def get_top_symbols(self, quote, n): return ["BTCUSDT"]
+    async def get_universe_snapshot(self, symbols):
+        return [CoinSnapshot(s, self._price, Decimal("0")) for s in symbols]
 
 
 class FakeMarketLLM:
@@ -23,11 +27,13 @@ class FakeMarketLLM:
 
 
 class FakeMarketHB:
-    """Market per l'heartbeat: prezzo unico per ogni simbolo + get_top_symbols."""
+    """Market per l'heartbeat: prezzo unico per ogni simbolo + get_top_symbols + universo."""
     def __init__(self, price, symbols=None):
         self._price, self._symbols = price, symbols or ["BTCUSDT"]
     async def get_price(self, symbol): return self._price
     async def get_top_symbols(self, quote, n): return self._symbols
+    async def get_universe_snapshot(self, symbols):
+        return [CoinSnapshot(s, self._price, Decimal("0")) for s in symbols]
 
 
 def _agent(session, cash="100"):
@@ -467,3 +473,42 @@ def test_universe_size_maps_universe_field():
     class B: universe = "TOP_50"
     assert universe_size(A()) == 100
     assert universe_size(B()) == 50
+
+
+async def test_heartbeat_writes_benchmark_snapshots_and_basis(db_session):
+    agent = _agent(db_session, "100")
+    market = FakeMarketHB(price=Decimal("100"), symbols=["BTCUSDT", "ETHUSDT"])
+    await run_heartbeat(db_session, agent, market)
+    basis = db_session.query(BenchmarkBasis).filter_by(agent_id=agent.id).one()
+    assert basis.initial_capital == Decimal("100")
+    kinds = sorted(r.kind for r in
+                   db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).all())
+    assert kinds == ["equal_weight", "hodl_btc", "random_p10", "random_p50", "random_p90"]
+    # at the first heartbeat every benchmark equals the initial capital (start == now prices)
+    for r in db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).all():
+        assert r.equity_usd == Decimal("100")
+
+
+async def test_heartbeat_basis_frozen_across_beats(db_session):
+    agent = _agent(db_session, "100")
+    await run_heartbeat(db_session, agent, FakeMarketHB(price=Decimal("100")))   # freezes basis at 100
+    await run_heartbeat(db_session, agent, FakeMarketHB(price=Decimal("200")))   # BTC doubled
+    assert db_session.query(BenchmarkBasis).filter_by(agent_id=agent.id).count() == 1   # frozen once
+    hodl = (db_session.query(BenchmarkSnapshot)
+            .filter_by(agent_id=agent.id, kind="hodl_btc")
+            .order_by(BenchmarkSnapshot.id.desc()).first())
+    assert hodl.equity_usd == Decimal("200")     # 100 * 200/100
+
+
+async def test_heartbeat_benchmark_failure_does_not_break_equity(db_session):
+    agent = _agent(db_session, "100")
+
+    class BrokenUniverse:
+        async def get_price(self, symbol): return Decimal("100")
+        async def get_top_symbols(self, quote, n): return ["BTCUSDT"]
+        async def get_universe_snapshot(self, symbols): raise RuntimeError("ticker down")
+
+    await run_heartbeat(db_session, agent, BrokenUniverse())
+    # equity snapshot still written, benchmark rows absent, no exception bubbled up
+    assert db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).one().equity_usd == Decimal("100")
+    assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count() == 0
