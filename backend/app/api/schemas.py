@@ -42,6 +42,12 @@ class EquityPoint(BaseModel):
     equity_usd: Decimal
 
 
+class BenchmarkPoint(BaseModel):
+    kind: str
+    timestamp: datetime
+    equity_usd: Decimal
+
+
 class EventOut(BaseModel):
     timestamp: datetime
     kind: str

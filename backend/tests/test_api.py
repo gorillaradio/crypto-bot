@@ -344,3 +344,41 @@ def test_delete_agent_removes_decision_records(db_session):
     db_session.commit()
     assert client.delete(f"/api/agents/{aid}").status_code == 204
     assert db_session.query(DecisionRecord).filter_by(agent_id=aid).count() == 0
+
+
+def test_get_benchmarks_returns_points_oldest_first(db_session):
+    from app.db.models import BenchmarkSnapshot
+    agent = Agent(name="Bm", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    db_session.add_all([
+        BenchmarkSnapshot(agent_id=agent.id, kind="hodl_btc", equity_usd=Decimal("100")),
+        BenchmarkSnapshot(agent_id=agent.id, kind="equal_weight", equity_usd=Decimal("101")),
+    ])
+    db_session.commit()
+    client = _client(db_session)
+    resp = client.get(f"/api/agents/{agent.id}/benchmarks")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 2
+    assert {p["kind"] for p in body} == {"hodl_btc", "equal_weight"}
+    assert Decimal(body[0]["equity_usd"]) == Decimal("100")   # id-ascending (oldest first)
+
+
+def test_get_benchmarks_empty_for_unknown_agent(db_session):
+    client = _client(db_session)
+    resp = client.get("/api/agents/9999/benchmarks")
+    assert resp.status_code == 200 and resp.json() == []
+
+
+def test_delete_agent_removes_benchmark_rows(db_session):
+    from app.db.models import BenchmarkBasis, BenchmarkSnapshot
+    client = _client(db_session)
+    aid = _mk(client, name="DoomedBm").json()["id"]
+    db_session.add(BenchmarkBasis(agent_id=aid, universe_json="[]", start_prices_json="{}",
+                                  initial_capital=Decimal("100")))
+    db_session.add(BenchmarkSnapshot(agent_id=aid, kind="hodl_btc", equity_usd=Decimal("100")))
+    db_session.commit()
+    assert client.delete(f"/api/agents/{aid}").status_code == 204
+    assert db_session.query(BenchmarkBasis).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=aid).count() == 0
