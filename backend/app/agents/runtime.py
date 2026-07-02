@@ -11,6 +11,37 @@ from app.brain.memory import run_reflection, ClosedTrade
 from app.brain.providers import make_adapter
 
 
+def universe_size(agent) -> int:
+    return 100 if agent.universe == "TOP_100" else 50
+
+
+async def build_agent_context(session, agent, market, symbols, *, wake_reason=None):
+    """Costruisce il DecisionContext dai dati vivi (universo, posizioni, eventi recenti,
+    memoria). Usata sia dal ciclo di decisione sia dal monitor dei prompt, così il monitor
+    mostra esattamente ciò che la pipeline invierebbe."""
+    universe = await market.get_universe_snapshot(symbols)
+
+    holdings = []
+    for pos in agent.positions:
+        last = await market.get_price(pos.symbol)
+        holdings.append((pos.symbol, pos.quantity, pos.avg_price, last))
+
+    recent = [e.message for e in (
+        session.query(Event).filter_by(agent_id=agent.id)
+        .order_by(Event.timestamp.desc()).limit(10).all())]
+
+    mem_rows = {r.section: r.content for r in
+                session.query(AgentMemory).filter_by(agent_id=agent.id).all()}
+    memory = MemoryView(
+        coin_theses=mem_rows.get("coin_theses", ""),
+        trade_lessons=mem_rows.get("trade_lessons", ""),
+        strategy_notes=mem_rows.get("strategy_notes", ""),
+    )
+    return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
+                         holdings=holdings, universe=universe, recent_events=recent,
+                         memory=memory, wake_reason=wake_reason)
+
+
 async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:
     if trigger_decision is None:
         trigger_decision = run_decision_guarded
@@ -81,28 +112,8 @@ async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=N
 
 async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id: str, wake_reason=None) -> None:
     try:
-        universe = await market.get_universe_snapshot(symbols)
-        universe_symbols = {c.symbol for c in universe}
-
-        holdings = []
-        for pos in agent.positions:
-            last = await market.get_price(pos.symbol)
-            holdings.append((pos.symbol, pos.quantity, pos.avg_price, last))
-
-        recent = [e.message for e in (
-            session.query(Event).filter_by(agent_id=agent.id)
-            .order_by(Event.timestamp.desc()).limit(10).all())]
-
-        mem_rows = {r.section: r.content for r in
-                    session.query(AgentMemory).filter_by(agent_id=agent.id).all()}
-        memory = MemoryView(
-            coin_theses=mem_rows.get("coin_theses", ""),
-            trade_lessons=mem_rows.get("trade_lessons", ""),
-            strategy_notes=mem_rows.get("strategy_notes", ""),
-        )
-        ctx = build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
-                            holdings=holdings, universe=universe, recent_events=recent,
-                            memory=memory, wake_reason=wake_reason)
+        ctx = await build_agent_context(session, agent, market, symbols, wake_reason=wake_reason)
+        universe_symbols = {c.symbol for c in ctx.universe}
         adapter = make_adapter(agent.model_provider, agent.model_name)
         decision = brain_decide(ctx, adapter)
     except Exception as exc:
@@ -159,7 +170,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
     if closed_trades:
         try:
             held_symbols = [p.symbol for p in agent.positions]
-            new_mem = reflect(memory, closed_trades, held_symbols, agent.instructions, adapter)
+            new_mem = reflect(ctx.memory, closed_trades, held_symbols, agent.instructions, adapter)
             _persist_memory(session, agent.id, new_mem)
             session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                               message="memoria aggiornata dopo trade chiuso"))
