@@ -85,3 +85,27 @@ def test_position_breach_armed_defaults_true(db_session):
     p = Position(agent_id=a.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100"))
     db_session.add(p); db_session.commit()
     assert p.breach_armed is True
+
+
+def test_decision_record_persists_with_defaults(db_session):
+    from app.db.models import DecisionRecord
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="cyc1", kind="decision", trigger="schedule",
+                         system_prompt="sys", user_prompt="usr", raw_response="raw",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=123)
+    db_session.add(rec); db_session.commit(); db_session.refresh(rec)
+    assert rec.id is not None
+    assert rec.created_at is not None            # Python-side default applied on insert
+    assert rec.raw_response == "raw"
+
+
+def test_decision_record_allows_null_raw_parsed_and_model(db_session):
+    from app.db.models import DecisionRecord
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="cyc2", kind="reflection", trigger="breach",
+                         system_prompt="s", user_prompt="u", raw_response=None,
+                         parsed_output=None, parse_status="failed",
+                         model_provider="openrouter", model_name=None, latency_ms=0)
+    db_session.add(rec); db_session.commit()
+    assert rec.raw_response is None and rec.parsed_output is None and rec.model_name is None

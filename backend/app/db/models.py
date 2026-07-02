@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint, Boolean
+from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -87,3 +87,21 @@ class ShareLink(Base):
     label: Mapped[str | None] = mapped_column(String(80), nullable=True)
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DecisionRecord(Base):
+    __tablename__ = "decision_records"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), index=True)
+    cycle_id: Mapped[str] = mapped_column(String(32), index=True)
+    kind: Mapped[str] = mapped_column(String(20))            # "decision" | "reflection"
+    trigger: Mapped[str] = mapped_column(String(20))         # "schedule" | "breach"
+    system_prompt: Mapped[str] = mapped_column(String)
+    user_prompt: Mapped[str] = mapped_column(String)
+    raw_response: Mapped[str | None] = mapped_column(String, nullable=True)
+    parsed_output: Mapped[str | None] = mapped_column(String, nullable=True)
+    parse_status: Mapped[str] = mapped_column(String(10))    # "ok" | "repaired" | "failed"
+    model_provider: Mapped[str] = mapped_column(String(40))
+    model_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
