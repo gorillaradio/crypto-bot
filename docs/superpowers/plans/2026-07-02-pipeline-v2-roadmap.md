@@ -181,7 +181,7 @@ operativa durante tutto il percorso (nessuna fase è un big-bang rewrite).
 | Fase | Stato | Piano | Note |
 |------|-------|-------|------|
 | 1 — Decision record | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-02-decision-record](2026-07-02-decision-record.md) | 7 commit, 130 test verdi, review opus ready-to-merge |
-| 2 — Evaluation harness | ⬜ | — | dipende da 1 |
+| 2 — Evaluation harness | 📝 piano scritto | [2026-07-03-evaluation-harness](2026-07-03-evaluation-harness.md) | 13 task, 4 parti (A benchmark · B scoring · C metriche · D dashboard); dipende da 1 |
 | 3 — Memoria a journal | ⬜ | — | |
 | 4 — Ingestion news | ⬜ | — | ricerca provider gratuiti da fare |
 | 5 — Trigger engine | ⬜ | — | dipende da 4 |
