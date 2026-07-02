@@ -10,6 +10,7 @@ vi.mock("../api", () => ({
   getEvents: vi.fn(() => Promise.resolve([])),
   getPositions: vi.fn(() => Promise.resolve([])),
   getMemory: vi.fn(() => Promise.resolve(null)),
+  getPrompt: vi.fn(() => Promise.resolve(null)),
   logout: vi.fn(() => Promise.resolve()),
   exchangeViewerToken: vi.fn(),
   getKlines: vi.fn(() => Promise.resolve([])),
