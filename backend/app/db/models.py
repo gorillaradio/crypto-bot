@@ -105,3 +105,34 @@ class DecisionRecord(Base):
     model_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     latency_ms: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class BenchmarkBasis(Base):
+    __tablename__ = "benchmark_basis"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), unique=True, index=True)
+    universe_json: Mapped[str] = mapped_column(String)          # JSON list of frozen symbols
+    start_prices_json: Mapped[str] = mapped_column(String)      # JSON {symbol: "price"} at start
+    initial_capital: Mapped[Decimal] = mapped_column(Numeric(20, 8))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class BenchmarkSnapshot(Base):
+    __tablename__ = "benchmark_snapshots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))               # hodl_btc | equal_weight | random_p10|p50|p90
+    equity_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class DecisionScore(Base):
+    __tablename__ = "decision_scores"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    decision_record_id: Mapped[int] = mapped_column(ForeignKey("decision_records.id"), index=True)
+    window: Mapped[str] = mapped_column(String(8))              # "24h" | "7d"
+    n_actions: Mapped[int] = mapped_column(Integer)
+    n_hits: Mapped[int] = mapped_column(Integer)
+    avg_return_pct: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    scored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    __table_args__ = (UniqueConstraint("decision_record_id", "window", name="uq_decision_score_window"),)

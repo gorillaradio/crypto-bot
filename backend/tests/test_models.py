@@ -109,3 +109,52 @@ def test_decision_record_allows_null_raw_parsed_and_model(db_session):
                          model_provider="openrouter", model_name=None, latency_ms=0)
     db_session.add(rec); db_session.commit()
     assert rec.raw_response is None and rec.parsed_output is None and rec.model_name is None
+
+
+def test_benchmark_basis_persists(db_session):
+    from app.db.models import BenchmarkBasis
+    a = _mk_agent(db_session)
+    row = BenchmarkBasis(agent_id=a.id, universe_json='["BTCUSDT"]',
+                         start_prices_json='{"BTCUSDT": "100"}', initial_capital=Decimal("100"))
+    db_session.add(row); db_session.commit(); db_session.refresh(row)
+    assert row.id is not None and row.created_at is not None
+
+
+def test_benchmark_snapshot_persists(db_session):
+    from app.db.models import BenchmarkSnapshot
+    a = _mk_agent(db_session)
+    row = BenchmarkSnapshot(agent_id=a.id, kind="hodl_btc", equity_usd=Decimal("123.45"))
+    db_session.add(row); db_session.commit(); db_session.refresh(row)
+    assert row.id is not None and row.timestamp is not None
+    assert row.kind == "hodl_btc"
+
+
+def test_decision_score_persists_with_null_return(db_session):
+    from app.db.models import DecisionRecord, DecisionScore
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=1)
+    db_session.add(rec); db_session.commit()
+    score = DecisionScore(decision_record_id=rec.id, window="24h", n_actions=0, n_hits=0,
+                          avg_return_pct=None)
+    db_session.add(score); db_session.commit(); db_session.refresh(score)
+    assert score.id is not None and score.avg_return_pct is None
+
+
+def test_decision_score_unique_per_record_and_window(db_session):
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    from app.db.models import DecisionRecord, DecisionScore
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=1)
+    db_session.add(rec); db_session.commit()
+    db_session.add(DecisionScore(decision_record_id=rec.id, window="24h", n_actions=1, n_hits=1))
+    db_session.commit()
+    db_session.add(DecisionScore(decision_record_id=rec.id, window="24h", n_actions=2, n_hits=0))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
