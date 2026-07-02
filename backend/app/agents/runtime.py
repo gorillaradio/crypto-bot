@@ -71,7 +71,7 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
     label = "stop" if side == "stop" else "take-profit"
     wake_reason = (f"Risveglio fuori ciclo: {symbol} a {change_pct:+.2f}%, oltre la tua "
                    f"soglia di {label} {threshold * Decimal('100'):.2f}%. Rivaluta.")
-    n = 100 if agent.universe == "TOP_100" else 50
+    n = universe_size(agent)
     symbols = await market.get_top_symbols("USDT", n)
     triggered = await trigger_decision(session, agent, market, symbols, wake_reason=wake_reason)
     if triggered:
