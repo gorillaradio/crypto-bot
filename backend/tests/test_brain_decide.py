@@ -1,5 +1,5 @@
 from decimal import Decimal
-from app.brain import decide
+from app.brain import decide, evaluate
 from app.brain.context import build_context
 
 
@@ -37,3 +37,34 @@ def test_decide_gives_up_to_empty_decision():
 def test_decide_handles_adapter_exception():
     d = decide(_ctx(), _Adapter([RuntimeError("boom")]))
     assert d.actions == [] and "error" in d.note.lower()
+
+
+def test_evaluate_ok_captures_raw_status_latency():
+    raw = '{"actions":[{"type":"HOLD","rationale":"wait"}],"note":"n"}'
+    r = evaluate(_ctx(), _Adapter([raw]))
+    assert r.decision.note == "n"
+    assert r.parse_status == "ok"
+    assert r.raw == raw
+    assert r.system and r.user            # prompts captured for replay
+    assert r.latency_ms >= 0
+
+
+def test_evaluate_repaired_keeps_corrected_raw():
+    r = evaluate(_ctx(), _Adapter(["not json", '{"actions":[],"note":"recovered"}']))
+    assert r.parse_status == "repaired"
+    assert r.raw == '{"actions":[],"note":"recovered"}'   # the second, corrected response
+    assert r.decision.note == "recovered"
+
+
+def test_evaluate_failed_keeps_last_raw():
+    r = evaluate(_ctx(), _Adapter(["bad", "still bad"]))
+    assert r.parse_status == "failed"
+    assert r.raw == "still bad"           # last response retained for debugging
+    assert r.decision.actions == []
+
+
+def test_evaluate_provider_error_is_failed_with_null_raw():
+    r = evaluate(_ctx(), _Adapter([RuntimeError("boom")]))
+    assert r.parse_status == "failed"
+    assert r.raw is None                  # no response ever received
+    assert "error" in r.decision.note.lower()
