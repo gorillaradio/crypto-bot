@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from decimal import Decimal
+from time import perf_counter
 from pydantic import BaseModel
 from app.brain.context import MemoryView
 
@@ -75,3 +76,28 @@ def run_reflection(memory: MemoryView, closed: list[ClosedTrade],
     system, user = build_reflection_prompt(memory, closed, held_symbols, instructions)
     raw = adapter.complete_json(system, user)
     return enforce_caps(parse_reflection(raw))
+
+
+@dataclass
+class ReflectionResult:
+    memory: MemoryView
+    system: str = ""
+    user: str = ""
+    raw: str | None = None
+    parse_status: str = "ok"      # "ok" | "failed"
+    latency_ms: int = 0
+
+
+def run_reflection_result(memory: MemoryView, closed: list[ClosedTrade],
+                          held_symbols: list[str], instructions: str, adapter) -> ReflectionResult:
+    system, user = build_reflection_prompt(memory, closed, held_symbols, instructions)
+    t0 = perf_counter()
+    try:
+        raw = adapter.complete_json(system, user)
+    except Exception:                     # provider error — memory left unchanged
+        return ReflectionResult(memory, system, user, None, "failed", int((perf_counter() - t0) * 1000))
+    try:
+        new_memory = enforce_caps(parse_reflection(raw))
+        return ReflectionResult(new_memory, system, user, raw, "ok", int((perf_counter() - t0) * 1000))
+    except Exception:                     # unparseable — keep old memory
+        return ReflectionResult(memory, system, user, raw, "failed", int((perf_counter() - t0) * 1000))

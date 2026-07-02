@@ -2,7 +2,7 @@ from decimal import Decimal
 from app.brain.context import MemoryView
 from app.brain.memory import (
     ClosedTrade, MemoryUpdate, build_reflection_prompt, parse_reflection,
-    enforce_caps, run_reflection,
+    enforce_caps, run_reflection, run_reflection_result, ReflectionResult,
     CAP_COIN_THESES, CAP_TRADE_LESSONS, CAP_STRATEGY_NOTES,
 )
 
@@ -44,3 +44,32 @@ def test_run_reflection_uses_adapter_and_caps():
     assert mem.coin_theses == "BTC: bull\nETH: flat"
     assert mem.trade_lessons == "sold too early"
     assert mem.strategy_notes == ""
+
+
+def test_run_reflection_result_ok_captures_trace():
+    class FakeAdapter:
+        def complete_json(self, system, user):
+            return '{"coin_theses": ["BTC: bull"], "trade_lessons": [], "strategy_notes": []}'
+    r = run_reflection_result(MemoryView(), [], [], "x", FakeAdapter())
+    assert r.parse_status == "ok"
+    assert r.memory.coin_theses == "BTC: bull"
+    assert r.raw and r.system and r.user
+    assert r.latency_ms >= 0
+
+
+def test_run_reflection_result_parse_failure_keeps_memory():
+    class FakeAdapter:
+        def complete_json(self, system, user): return "not json"
+    r = run_reflection_result(MemoryView(coin_theses="keep me"), [], [], "x", FakeAdapter())
+    assert r.parse_status == "failed"
+    assert r.memory.coin_theses == "keep me"      # unchanged on failure
+    assert r.raw == "not json"
+
+
+def test_run_reflection_result_provider_error_is_failed():
+    class FakeAdapter:
+        def complete_json(self, system, user): raise RuntimeError("down")
+    r = run_reflection_result(MemoryView(coin_theses="keep me"), [], [], "x", FakeAdapter())
+    assert r.parse_status == "failed"
+    assert r.raw is None
+    assert r.memory.coin_theses == "keep me"
