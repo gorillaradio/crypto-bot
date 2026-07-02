@@ -55,6 +55,18 @@ class MemoryOut(BaseModel):
     strategy_notes: str
 
 
+class PromptPair(BaseModel):
+    system: str
+    user: str
+    note: str | None = None
+
+
+class PromptPreviewOut(BaseModel):
+    decision: PromptPair
+    reflection: PromptPair
+    retry: PromptPair
+
+
 class LoginIn(BaseModel):
     password: str
 

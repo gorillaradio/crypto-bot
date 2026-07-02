@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position, Trade
-from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, EquityPoint, EventOut, MemoryOut, PositionOut
+from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, EquityPoint, EventOut, MemoryOut, PositionOut, PromptPreviewOut
+from app.market.binance import BinanceClient
+from app.agents.preview import render_agent_prompts_preview
 
 router = APIRouter(prefix="/api")
 
@@ -17,6 +19,10 @@ def _latest_equity(session, agent: Agent) -> Decimal:
         .first()
     )
     return snap.equity_usd if snap else agent.cash_usd
+
+
+def market_dep() -> BinanceClient:
+    return BinanceClient()
 
 
 def _agent_out(session, agent: Agent) -> AgentOut:
@@ -136,3 +142,15 @@ def get_events(agent_id: int, session=Depends(session_dep), _: str = Depends(req
         .limit(100)
         .all()
     )
+
+
+@router.get("/agents/{agent_id}/prompt", response_model=PromptPreviewOut)
+async def get_prompt(agent_id: int, session=Depends(session_dep),
+                     market=Depends(market_dep), _: str = Depends(require_viewer_or_admin)):
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "agent not found")
+    try:
+        return await render_agent_prompts_preview(session, agent, market)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"prompt preview unavailable: {exc}")
