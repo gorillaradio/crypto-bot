@@ -50,3 +50,10 @@ def render_prompt(ctx: DecisionContext) -> tuple[str, str]:
         lines += ["", "Your memory (you wrote this; update your behaviour accordingly):"] + mem_lines
 
     return system, "\n".join(lines)
+
+
+def retry_user_suffix(error: str) -> str:
+    """Suffisso appeso al messaggio user quando la risposta non è JSON valido.
+    Condiviso tra decide() (retry reale) e il monitor dei prompt (con errore d'esempio)."""
+    return (f"\n\nYour previous reply was not valid JSON for the schema "
+            f"({error}). Reply with ONLY the corrected JSON object.")
