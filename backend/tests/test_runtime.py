@@ -512,3 +512,46 @@ async def test_heartbeat_benchmark_failure_does_not_break_equity(db_session):
     # equity snapshot still written, benchmark rows absent, no exception bubbled up
     assert db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).one().equity_usd == Decimal("100")
     assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count() == 0
+
+
+async def test_heartbeat_breach_still_triggers_when_benchmark_fails(db_session):
+    """Benchmark recording rolls back on a broken market (expiring ORM state); the
+    breach logic that follows must still fire and disarm the position."""
+    agent = _armed_agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+
+    class BreachMarketBrokenBench:
+        async def get_price(self, symbol): return Decimal("85")          # -15% → stop breach
+        async def get_top_symbols(self, quote, n): return ["BTCUSDT"]
+        async def get_universe_snapshot(self, symbols): raise RuntimeError("ticker down")
+
+    calls = []
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None):
+        calls.append(wake_reason); return True
+
+    await run_heartbeat(db_session, agent, BreachMarketBrokenBench(), trigger_decision=fake_trigger)
+    assert len(calls) == 1 and "stop" in calls[0]        # breach fired despite benchmark failure
+    pos = db_session.query(Position).filter_by(agent_id=agent.id).one()
+    assert pos.breach_armed is False                     # disarmed after trigger
+    assert db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).count() == 1
+    assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count() == 0
+
+
+async def test_heartbeat_second_beat_benchmark_failure_keeps_basis(db_session):
+    """A later beat whose benchmark valuation fails rolls back only that beat's work;
+    the basis frozen on the first beat stays intact."""
+    agent = _agent(db_session, "100")
+    await run_heartbeat(db_session, agent, FakeMarketHB(price=Decimal("100")))   # beat 1 freezes basis
+    assert db_session.query(BenchmarkBasis).filter_by(agent_id=agent.id).count() == 1
+    snaps_before = db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count()
+
+    class BrokenSecondBeat:
+        async def get_price(self, symbol): return Decimal("100")
+        async def get_top_symbols(self, quote, n): return ["BTCUSDT"]
+        async def get_universe_snapshot(self, symbols): raise RuntimeError("ticker down")
+
+    await run_heartbeat(db_session, agent, BrokenSecondBeat())                   # beat 2 benchmark fails
+    assert db_session.query(BenchmarkBasis).filter_by(agent_id=agent.id).count() == 1          # basis intact
+    assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count() == snaps_before
