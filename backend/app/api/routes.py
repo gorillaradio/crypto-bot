@@ -3,8 +3,8 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
-from app.db.models import Agent, AgentMemory, EquitySnapshot, Event, Position, Trade
-from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, EquityPoint, EventOut, MemoryOut, PositionOut, PromptPreviewOut
+from app.db.models import Agent, AgentMemory, DecisionRecord, EquitySnapshot, Event, Position, Trade
+from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, DecisionRecordOut, EquityPoint, EventOut, MemoryOut, PositionOut, PromptPreviewOut
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
 
@@ -91,7 +91,7 @@ def delete_agent(agent_id: int, session=Depends(session_dep), _: str = Depends(r
     agent = session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(404, "agent not found")
-    for model in (Position, Trade, EquitySnapshot, Event, AgentMemory):
+    for model in (Position, Trade, EquitySnapshot, Event, AgentMemory, DecisionRecord):
         session.query(model).filter_by(agent_id=agent_id).delete(synchronize_session=False)
     session.delete(agent)
     session.commit()
@@ -139,6 +139,17 @@ def get_events(agent_id: int, session=Depends(session_dep), _: str = Depends(req
         session.query(Event)
         .filter_by(agent_id=agent_id)
         .order_by(Event.timestamp.desc(), Event.id.desc())
+        .limit(100)
+        .all()
+    )
+
+
+@router.get("/agents/{agent_id}/decisions", response_model=list[DecisionRecordOut])
+def get_decisions(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
+    return (
+        session.query(DecisionRecord)
+        .filter_by(agent_id=agent_id)
+        .order_by(DecisionRecord.created_at.desc(), DecisionRecord.id.desc())
         .limit(100)
         .all()
     )

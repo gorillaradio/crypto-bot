@@ -49,6 +49,22 @@ class EventOut(BaseModel):
     cycle_id: str | None = None
 
 
+class DecisionRecordOut(BaseModel):
+    id: int
+    cycle_id: str
+    kind: str
+    trigger: str
+    system_prompt: str
+    user_prompt: str
+    raw_response: str | None = None
+    parsed_output: str | None = None
+    parse_status: str
+    model_provider: str
+    model_name: str | None = None
+    latency_ms: int
+    created_at: datetime
+
+
 class MemoryOut(BaseModel):
     coin_theses: str
     trade_lessons: str

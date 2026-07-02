@@ -83,6 +83,13 @@ def test_reads_require_a_session(client, db_session):
     assert client.get("/api/agents").status_code == 200                 # viewer can read
 
 
+def test_decisions_require_a_session(client, db_session):
+    assert client.get("/api/agents/1/decisions").status_code == 401
+    db_session.add(ShareLink(token="v3")); db_session.commit()
+    client.post("/api/auth/viewer", json={"token": "v3"})
+    assert client.get("/api/agents/1/decisions").status_code == 200   # viewer can read
+
+
 def test_share_links_are_admin_only(client):
     assert client.get("/api/share-links").status_code == 401
     client.post("/api/auth/login", json={"password": "secret"})

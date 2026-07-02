@@ -298,3 +298,49 @@ def test_get_prompt_502_when_market_fails(db_session):
     app.dependency_overrides[routes.market_dep] = lambda: FailingMarketPreview()
     resp = client.get(f"/api/agents/{agent.id}/prompt")
     assert resp.status_code == 502
+
+
+def test_get_decisions_returns_records_newest_first(db_session):
+    from app.db.models import DecisionRecord
+    agent = Agent(name="D", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    db_session.add_all([
+        DecisionRecord(agent_id=agent.id, cycle_id="c1", kind="decision", trigger="schedule",
+                       system_prompt="s1", user_prompt="u1", raw_response="r1",
+                       parsed_output='{"actions":[]}', parse_status="ok",
+                       model_provider="openrouter", model_name="m", latency_ms=10),
+        DecisionRecord(agent_id=agent.id, cycle_id="c2", kind="reflection", trigger="schedule",
+                       system_prompt="s2", user_prompt="u2", raw_response=None,
+                       parsed_output=None, parse_status="failed",
+                       model_provider="openrouter", model_name="m", latency_ms=5),
+    ])
+    db_session.commit()
+    client = _client(db_session)
+    resp = client.get(f"/api/agents/{agent.id}/decisions")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 2
+    assert body[0]["cycle_id"] == "c2"            # newest (higher id) first
+    assert body[0]["parse_status"] == "failed"
+    assert body[0]["raw_response"] is None
+    assert body[1]["kind"] == "decision" and body[1]["latency_ms"] == 10
+
+
+def test_get_decisions_empty_for_unknown_agent(db_session):
+    client = _client(db_session)
+    resp = client.get("/api/agents/9999/decisions")
+    assert resp.status_code == 200 and resp.json() == []
+
+
+def test_delete_agent_removes_decision_records(db_session):
+    from app.db.models import DecisionRecord
+    client = _client(db_session)
+    aid = _mk(client, name="DoomedRec").json()["id"]
+    db_session.add(DecisionRecord(agent_id=aid, cycle_id="c1", kind="decision", trigger="schedule",
+                                  system_prompt="s", user_prompt="u", raw_response="r",
+                                  parsed_output=None, parse_status="ok",
+                                  model_provider="openrouter", model_name="m", latency_ms=1))
+    db_session.commit()
+    assert client.delete(f"/api/agents/{aid}").status_code == 204
+    assert db_session.query(DecisionRecord).filter_by(agent_id=aid).count() == 0
