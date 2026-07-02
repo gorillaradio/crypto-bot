@@ -1,6 +1,6 @@
 from app.brain.schema import Decision
 from app.brain.context import DecisionContext
-from app.brain.prompt import render_prompt
+from app.brain.prompt import render_prompt, retry_user_suffix
 
 
 def decide(ctx: DecisionContext, adapter) -> Decision:
@@ -14,9 +14,7 @@ def decide(ctx: DecisionContext, adapter) -> Decision:
         return Decision.model_validate_json(raw)
     except Exception as first_err:
         try:
-            raw2 = adapter.complete_json(
-                system, user + f"\n\nYour previous reply was not valid JSON for the schema "
-                               f"({first_err}). Reply with ONLY the corrected JSON object.")
+            raw2 = adapter.complete_json(system, user + retry_user_suffix(str(first_err)))
             return Decision.model_validate_json(raw2)
         except Exception as second_err:
             return Decision(actions=[], note=f"decision parse failed: {second_err}")

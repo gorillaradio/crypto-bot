@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes, auth
 from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, Trade, Event, AgentMemory
+from app.brain.context import CoinSnapshot
 
 
 @pytest.fixture(autouse=True)
@@ -240,3 +241,60 @@ def test_create_agent_rejects_nonpositive_take_profit(db_session):
     client = _client(db_session)
     resp = _mk(client, name="Bad2", take_profit=0)
     assert resp.status_code == 422
+
+
+class FakeMarketPreview:
+    def __init__(self, snapshot, price, symbols=None):
+        self._snap, self._price, self._symbols = snapshot, price, symbols or ["BTCUSDT"]
+    async def get_top_symbols(self, quote, n): return self._symbols
+    async def get_universe_snapshot(self, symbols): return self._snap
+    async def get_price(self, symbol): return self._price
+
+
+def _use_fake_market(snapshot=None, price=Decimal("120")):
+    snap = snapshot if snapshot is not None else [CoinSnapshot("BTCUSDT", price, Decimal("1"))]
+    app.dependency_overrides[routes.market_dep] = lambda: FakeMarketPreview(snap, price)
+
+
+def test_get_prompt_returns_three_prompts(db_session):
+    agent = Agent(name="P", instructions="compra basso",
+                  duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
+    db_session.add(agent); db_session.commit()
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market()
+    resp = client.get(f"/api/agents/{agent.id}/prompt")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body) == {"decision", "reflection", "retry"}
+    assert "compra basso" in body["decision"]["system"]
+    assert "BTCUSDT" in body["decision"]["user"]
+
+
+def test_get_prompt_404_when_missing(db_session):
+    client = _client(db_session)
+    _use_fake_market()
+    resp = client.get("/api/agents/999/prompt")
+    assert resp.status_code == 404
+
+
+class FailingMarketPreview:
+    async def get_top_symbols(self, quote, n): raise RuntimeError("binance down")
+    async def get_universe_snapshot(self, symbols): raise RuntimeError("binance down")
+    async def get_price(self, symbol): raise RuntimeError("binance down")
+
+
+def test_get_prompt_502_when_market_fails(db_session):
+    agent = Agent(name="P", instructions="compra basso",
+                  duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
+    db_session.add(agent); db_session.commit()
+    client = _client(db_session)
+    app.dependency_overrides[routes.market_dep] = lambda: FailingMarketPreview()
+    resp = client.get(f"/api/agents/{agent.id}/prompt")
+    assert resp.status_code == 502

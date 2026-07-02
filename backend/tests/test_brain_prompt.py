@@ -59,3 +59,11 @@ def test_render_prompt_no_wake_marker_when_none():
                         universe=[], recent_events=[])
     _system, user = render_prompt(ctx)
     assert "⚠" not in user
+
+
+def test_retry_user_suffix_contains_schema_and_correction_ask():
+    from app.brain.prompt import retry_user_suffix
+    s = retry_user_suffix("boom")
+    assert "boom" in s
+    assert "not valid JSON" in s
+    assert "corrected JSON" in s

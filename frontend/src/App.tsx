@@ -11,6 +11,7 @@ import { EquityChart } from "./components/EquityChart";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
+import { PromptPanel } from "./components/PromptPanel";
 import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
 import { AgentSidebar } from "./components/AgentSidebar";
@@ -213,6 +214,15 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                 {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
               </CardContent>
             </Card>
+
+            {selId !== null && (
+              <Card>
+                <CardContent>
+                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Prompt (inviati all'LLM)</h2>
+                  <PromptPanel agentId={selId} />
+                </CardContent>
+              </Card>
+            )}
           </div>
         ) : (
           <Card className="py-8">

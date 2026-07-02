@@ -1,7 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from app.db.models import Agent, Event, Position, EquitySnapshot, Trade, AgentMemory
-from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded
+from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, build_agent_context, universe_size
 from app.brain.context import CoinSnapshot, MemoryView
 from app.brain.schema import Decision, Action
 
@@ -372,3 +372,27 @@ async def test_guarded_skips_when_locked(db_session):
         assert ran is False
     finally:
         lock.release()
+
+
+async def test_build_agent_context_assembles_from_live_data(db_session):
+    agent = _llm_agent(db_session)
+    agent.instructions = "compra basso vendi alto"
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("2"), avg_price=Decimal("100")))
+    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bull"))
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("110"), (Decimal("109"), Decimal("111")))
+    ctx = await build_agent_context(db_session, agent, market, ["BTCUSDT"], wake_reason="w")
+    assert ctx.instructions == "compra basso vendi alto"
+    assert ctx.wake_reason == "w"
+    assert [c.symbol for c in ctx.universe] == ["BTCUSDT"]
+    assert any(p.symbol == "BTCUSDT" and p.last_price == Decimal("110") for p in ctx.positions)
+    assert ctx.memory.coin_theses == "BTC: bull"
+
+
+def test_universe_size_maps_universe_field():
+    class A: universe = "TOP_100"
+    class B: universe = "TOP_50"
+    assert universe_size(A()) == 100
+    assert universe_size(B()) == 50

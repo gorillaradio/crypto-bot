@@ -4,7 +4,7 @@ from app.core.config import settings
 from app.db.base import get_session
 from app.db.models import Agent
 from app.market.binance import BinanceClient
-from app.agents.runtime import run_heartbeat, run_decision_guarded
+from app.agents.runtime import run_heartbeat, run_decision_guarded, universe_size
 
 _scheduler: AsyncIOScheduler | None = None
 logger = logging.getLogger(__name__)
@@ -21,17 +21,13 @@ async def _heartbeat_tick():
                 session.rollback()
 
 
-def _universe_size(agent: Agent) -> int:
-    return 100 if agent.universe == "TOP_100" else 50
-
-
 async def _decision_tick():
     market = BinanceClient()
     symbols_cache: dict[int, list[str]] = {}
     with get_session() as session:
         for agent in session.query(Agent).filter_by(status="running").all():
             try:
-                n = _universe_size(agent)
+                n = universe_size(agent)
                 if n not in symbols_cache:
                     symbols_cache[n] = await market.get_top_symbols("USDT", n)
                 await run_decision_guarded(session, agent, market, symbols_cache[n])
