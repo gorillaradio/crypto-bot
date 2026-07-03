@@ -44,3 +44,40 @@ def test_movement_change_flat():
 
 def test_movement_change_zero_first_guards():
     assert movement_change(Decimal("0"), Decimal("50")) == Decimal("0")
+
+
+from app.db.models import DecisionRecord
+from app.agents.triggers import count_recent_event_wakes
+
+
+def _rec(session, agent_id, trigger, kind="decision", age_minutes=1):
+    r = DecisionRecord(agent_id=agent_id, cycle_id="c", kind=kind, trigger=trigger,
+                       system_prompt="s", user_prompt="u", raw_response="r",
+                       parsed_output="{}", parse_status="ok",
+                       model_provider="openrouter", model_name="m", latency_ms=1)
+    r.created_at = datetime.now(timezone.utc) - timedelta(minutes=age_minutes)
+    session.add(r); session.commit()
+    return r
+
+
+def test_budget_counts_only_movement_and_news_decisions(db_session):
+    agent = _agent(db_session)
+    _rec(db_session, agent.id, "movement")
+    _rec(db_session, agent.id, "news")
+    _rec(db_session, agent.id, "breach")                        # exempt trigger
+    _rec(db_session, agent.id, "schedule")                     # exempt trigger
+    _rec(db_session, agent.id, "movement", kind="reflection")  # not a decision
+    assert count_recent_event_wakes(db_session, agent.id) == 2
+
+
+def test_budget_excludes_records_older_than_one_hour(db_session):
+    agent = _agent(db_session)
+    _rec(db_session, agent.id, "movement", age_minutes=59)
+    _rec(db_session, agent.id, "news", age_minutes=120)        # 2h ago → excluded
+    assert count_recent_event_wakes(db_session, agent.id) == 1
+
+
+def test_budget_is_per_agent(db_session):
+    a1, a2 = _agent(db_session), _agent(db_session)
+    _rec(db_session, a1.id, "movement")
+    assert count_recent_event_wakes(db_session, a2.id) == 0
