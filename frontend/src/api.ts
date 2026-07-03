@@ -38,6 +38,9 @@ export type AgentMemory = {
   trade_lessons: string;
   strategy_notes: string;
 };
+export type MemoryEntry = {
+  section: string; content: string; cycle_id: string | null; active: boolean; created_at: string;
+};
 export type PromptPair = { system: string; user: string; note?: string | null };
 export type PromptPreview = { decision: PromptPair; reflection: PromptPair; retry: PromptPair };
 
@@ -56,6 +59,7 @@ export const getModelMetrics = () => get<ModelMetrics[]>("/api/metrics/by-model"
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
+export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);
 export const getPrompt = (id: number) => get<PromptPreview>(`/api/agents/${id}/prompt`);
 
 export type AgentCreateInput = {
