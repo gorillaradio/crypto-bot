@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     news_poll_seconds: int = 900     # poll crypto news feeds every 15 min
     universe_default: str = "TOP_100"
 
+    # --- trigger engine (Fase 5) ---
+    wake_budget_per_hour: int = 2          # max news+movement wakes/hour per agent
+    movement_threshold: Decimal = Decimal("0.05")   # |~1h move| >= this fraction => movement wake
+    movement_window_hours: int = 1
+
     # --- auth ---
     admin_password: str = ""
     secret_key: str = ""

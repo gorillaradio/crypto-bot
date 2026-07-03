@@ -26,6 +26,9 @@ class Agent(Base):
     stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     take_profit: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # News wake bookmark: highest Observation.id this agent has already "seen"
+    # (present in a prior decision's prompt). NULL = never decided yet.
+    last_seen_observation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     positions: Mapped[list["Position"]] = relationship(back_populates="agent")
 
@@ -38,6 +41,7 @@ class Position(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(28, 12))
     avg_price: Mapped[Decimal] = mapped_column(Numeric(20, 8))
     breach_armed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    move_armed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     agent: Mapped["Agent"] = relationship(back_populates="positions")
 
 
@@ -85,7 +89,7 @@ class DecisionRecord(Base):
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), index=True)
     cycle_id: Mapped[str] = mapped_column(String(32), index=True)
     kind: Mapped[str] = mapped_column(String(20))            # "decision" | "reflection"
-    trigger: Mapped[str] = mapped_column(String(20))         # "schedule" | "breach"
+    trigger: Mapped[str] = mapped_column(String(20))  # "schedule" | "breach" | "movement" | "news"
     system_prompt: Mapped[str] = mapped_column(String)
     user_prompt: Mapped[str] = mapped_column(String)
     raw_response: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -148,5 +152,7 @@ class Observation(Base):
     url: Mapped[str | None] = mapped_column(String, nullable=True)
     symbols_json: Mapped[str] = mapped_column(String, default="[]")    # JSON list of base symbols; "[]" = market-wide
     dedup_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # MUST be written UTC-aware: SQLite drops tzinfo, so any datetime ordering/compare
+    # is correct only while every writer stores UTC. Sole writer today: app/feeds/rss.py.
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
