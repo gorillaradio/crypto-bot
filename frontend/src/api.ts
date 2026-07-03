@@ -15,6 +15,7 @@ export type Agent = {
   duration_end: string;
 };
 export type EquityPoint = { timestamp: string; equity_usd: string };
+export type BenchmarkPoint = { kind: string; timestamp: string; equity_usd: string };
 export type AgentEvent = { timestamp: string; kind: string; message: string; cycle_id: string | null };
 export type Position = {
   symbol: string;
@@ -39,6 +40,7 @@ async function get<T>(path: string): Promise<T> {
 
 export const getAgents = () => get<Agent[]>("/api/agents");
 export const getEquity = (id: number) => get<EquityPoint[]>(`/api/agents/${id}/equity`);
+export const getBenchmarks = (id: number) => get<BenchmarkPoint[]>(`/api/agents/${id}/benchmarks`);
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
