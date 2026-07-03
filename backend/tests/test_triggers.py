@@ -81,3 +81,51 @@ def test_budget_is_per_agent(db_session):
     a1, a2 = _agent(db_session), _agent(db_session)
     _rec(db_session, a1.id, "movement")
     assert count_recent_event_wakes(db_session, a2.id) == 0
+
+
+import json
+from app.db.models import Observation, Position
+from app.agents.triggers import fresh_news_for
+
+
+def _obs(session, title, symbols, pub_hour):
+    o = Observation(source="CoinDesk", kind="news", title=title, url=title,
+                    symbols_json=json.dumps(symbols), dedup_hash=title,
+                    published_at=datetime(2026, 7, 3, pub_hour, 0, tzinfo=timezone.utc))
+    session.add(o); session.commit()
+    return o
+
+
+def _holding(session, agent, symbol):
+    session.add(Position(agent_id=agent.id, symbol=symbol, quantity=Decimal("1"), avg_price=Decimal("100")))
+    session.commit()
+
+
+def test_fresh_news_returns_newest_matching_beyond_bookmark(db_session):
+    agent = _agent(db_session); _holding(db_session, agent, "BTCUSDT")
+    _obs(db_session, "old btc", ["BTC"], 8)
+    newest = _obs(db_session, "new btc", ["BTC"], 10)
+    hit = fresh_news_for(db_session, agent)
+    assert hit is not None and hit.id == newest.id
+
+
+def test_fresh_news_ignores_non_held_and_marketwide(db_session):
+    agent = _agent(db_session); _holding(db_session, agent, "BTCUSDT")
+    _obs(db_session, "eth news", ["ETH"], 9)      # not held
+    _obs(db_session, "macro", [], 9)              # market-wide → never triggers
+    assert fresh_news_for(db_session, agent) is None
+
+
+def test_fresh_news_respects_bookmark(db_session):
+    agent = _agent(db_session); _holding(db_session, agent, "BTCUSDT")
+    seen = _obs(db_session, "btc seen", ["BTC"], 8)
+    agent.last_seen_observation_id = seen.id; db_session.commit()
+    assert fresh_news_for(db_session, agent) is None            # nothing newer
+    fresh = _obs(db_session, "btc fresh", ["BTC"], 9)
+    assert fresh_news_for(db_session, agent).id == fresh.id
+
+
+def test_fresh_news_none_when_no_holdings(db_session):
+    agent = _agent(db_session)
+    _obs(db_session, "btc news", ["BTC"], 9)
+    assert fresh_news_for(db_session, agent) is None
