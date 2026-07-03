@@ -1,15 +1,15 @@
 import asyncio
 import json
-from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
-from app.db.models import EquitySnapshot, Event, AgentMemory, DecisionRecord, BenchmarkBasis, BenchmarkSnapshot
+from app.db.models import EquitySnapshot, Event, DecisionRecord, BenchmarkBasis, BenchmarkSnapshot
 from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
 from app.brain import evaluate as brain_decide_default
-from app.brain.context import build_context, MemoryView
+from app.brain.context import build_context
+from app.brain import journal
 from app.brain.memory import run_reflection_result, ClosedTrade
 from app.brain.providers import make_adapter
 from app.eval.benchmarks import compute_benchmark_equities
@@ -34,13 +34,7 @@ async def build_agent_context(session, agent, market, symbols, *, wake_reason=No
         session.query(Event).filter_by(agent_id=agent.id)
         .order_by(Event.timestamp.desc()).limit(10).all())]
 
-    mem_rows = {r.section: r.content for r in
-                session.query(AgentMemory).filter_by(agent_id=agent.id).all()}
-    memory = MemoryView(
-        coin_theses=mem_rows.get("coin_theses", ""),
-        trade_lessons=mem_rows.get("trade_lessons", ""),
-        strategy_notes=mem_rows.get("strategy_notes", ""),
-    )
+    memory = journal.compact_view(session, agent.id)
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                          holdings=holdings, universe=universe, recent_events=recent,
                          memory=memory, wake_reason=wake_reason)
@@ -186,11 +180,13 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
             rr = reflect(ctx.memory, closed_trades, held_symbols, agent.instructions, adapter)
             _record_llm_call(session, agent, cycle_id, "reflection", trigger,
                              system=rr.system, user=rr.user, raw=rr.raw,
-                             parsed_output=(json.dumps(asdict(rr.memory))
+                             parsed_output=(rr.entries.model_dump_json()
                                             if rr.parse_status == "ok" else None),
                              parse_status=rr.parse_status, latency_ms=rr.latency_ms)
             if rr.parse_status == "ok":
-                _persist_memory(session, agent.id, rr.memory)
+                for section in journal.SECTIONS:
+                    journal.append_entries(session, agent.id, section,
+                                           getattr(rr.entries, section), cycle_id=cycle_id)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="memoria aggiornata dopo trade chiuso"))
             else:
@@ -215,18 +211,6 @@ def _record_llm_call(session, agent, cycle_id, kind, trigger, *,
         parsed_output=parsed_output, parse_status=parse_status,
         model_provider=agent.model_provider, model_name=agent.model_name,
         latency_ms=latency_ms))
-
-
-def _persist_memory(session, agent_id, mem: MemoryView) -> None:
-    for section, content in (("coin_theses", mem.coin_theses),
-                             ("trade_lessons", mem.trade_lessons),
-                             ("strategy_notes", mem.strategy_notes)):
-        row = (session.query(AgentMemory)
-               .filter_by(agent_id=agent_id, section=section).first())
-        if row is None:
-            session.add(AgentMemory(agent_id=agent_id, section=section, content=content))
-        else:
-            row.content = content
 
 
 async def record_benchmark_snapshot(session, agent, market) -> None:

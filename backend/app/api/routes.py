@@ -194,13 +194,10 @@ def get_model_metrics(session=Depends(session_dep), _: str = Depends(require_vie
 
 @router.get("/agents/{agent_id}/memory", response_model=MemoryOut)
 def get_memory(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
-    rows = {r.section: r.content for r in
-            session.query(AgentMemory).filter_by(agent_id=agent_id).all()}
-    return MemoryOut(
-        coin_theses=rows.get("coin_theses", ""),
-        trade_lessons=rows.get("trade_lessons", ""),
-        strategy_notes=rows.get("strategy_notes", ""),
-    )
+    from app.brain.journal import compact_view
+    view = compact_view(session, agent_id)
+    return MemoryOut(coin_theses=view.coin_theses, trade_lessons=view.trade_lessons,
+                     strategy_notes=view.strategy_notes)
 
 
 @router.get("/agents/{agent_id}/events", response_model=list[EventOut])

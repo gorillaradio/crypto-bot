@@ -1,11 +1,13 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, AgentMemory,
+from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, MemoryEntry,
                            DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, build_agent_context, universe_size
-from app.brain.context import CoinSnapshot, MemoryView
+from app.brain.context import CoinSnapshot
 from app.brain.memory import ReflectionResult
 from app.brain.schema import Decision, Action, DecisionResult
+from app.brain import journal
+from app.brain.memory import MemoryUpdate
 
 
 class FakeMarket:
@@ -260,16 +262,17 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
     calls = []
     def fake_reflect(memory, closed, held_symbols, instructions, adapter):
         calls.append(closed)
-        return ReflectionResult(MemoryView(coin_theses="BTC: took profit", trade_lessons="green exit"))
+        return ReflectionResult(MemoryUpdate(coin_theses=["BTC: took profit"], trade_lessons=["green exit"]))
 
     await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: DecisionResult(decision), reflect=fake_reflect)
 
-    assert len(calls) == 1                       # exactly one reflection call
+    assert len(calls) == 1
     assert calls[0][0].symbol == "BTCUSDT"
-    assert calls[0][0].realized_pnl_pct == Decimal("20")   # (120-100)/100*100
-    row = db_session.query(AgentMemory).filter_by(agent_id=agent.id, section="coin_theses").one()
-    assert row.content == "BTC: took profit"
+    assert calls[0][0].realized_pnl_pct == Decimal("20")
+    rows = journal.active_entries(db_session, agent.id, "coin_theses")
+    assert [r.content for r in rows] == ["BTC: took profit"]
+    assert [r.cycle_id for r in rows] == [rows[0].cycle_id] and rows[0].cycle_id is not None
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="reflection").one()
     assert "memoria" in ev.message.lower()
 
@@ -282,7 +285,7 @@ async def test_reflection_call_is_recorded(db_session):
     snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
     market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
     decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
-    refl = ReflectionResult(MemoryView(coin_theses="BTC: booked"),
+    refl = ReflectionResult(MemoryUpdate(coin_theses=["BTC: booked"]),
                             system="RSYS", user="RUSR", raw='{"coin_theses":["BTC: booked"]}',
                             parse_status="ok", latency_ms=7)
     await run_decision(db_session, agent, market, ["BTCUSDT"],
@@ -336,9 +339,9 @@ async def test_no_reflection_when_no_sell(db_session):
     calls = []
     await run_decision(db_session, agent, market, ["BTCUSDT"],
                        brain_decide=lambda ctx, adapter: DecisionResult(decision),
-                       reflect=lambda *a, **k: calls.append(1) or ReflectionResult(MemoryView()))
+                       reflect=lambda *a, **k: calls.append(1) or ReflectionResult(MemoryUpdate()))
     assert calls == []
-    assert db_session.query(AgentMemory).filter_by(agent_id=agent.id).count() == 0
+    assert db_session.query(MemoryEntry).filter_by(agent_id=agent.id).count() == 0
 
 
 async def test_run_decision_passes_wake_reason_and_marks_event(db_session):
@@ -360,7 +363,7 @@ async def test_run_decision_passes_wake_reason_and_marks_event(db_session):
 
 async def test_reflection_failure_is_isolated(db_session):
     agent = _llm_agent(db_session)
-    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: keep"))
+    journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: keep"])
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.commit()
@@ -375,8 +378,8 @@ async def test_reflection_failure_is_isolated(db_session):
                        brain_decide=lambda ctx, adapter: DecisionResult(decision), reflect=boom)
 
     # existing memory untouched
-    row = db_session.query(AgentMemory).filter_by(agent_id=agent.id, section="coin_theses").one()
-    assert row.content == "BTC: keep"
+    rows = journal.active_entries(db_session, agent.id, "coin_theses")
+    assert [r.content for r in rows] == ["BTC: keep"]
     # error logged as a reflection event, loop did not crash (the SELL still executed)
     ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="reflection").one()
     assert "errore" in ev.message and "provider down" in ev.message
@@ -456,7 +459,7 @@ async def test_build_agent_context_assembles_from_live_data(db_session):
     agent.instructions = "compra basso vendi alto"
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("2"), avg_price=Decimal("100")))
-    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bull"))
+    journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: bull"])
     db_session.commit()
     snap = [CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))]
     market = FakeMarketLLM(snap, Decimal("110"), (Decimal("109"), Decimal("111")))

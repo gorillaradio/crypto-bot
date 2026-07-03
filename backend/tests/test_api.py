@@ -119,17 +119,18 @@ def test_create_agent_rejects_empty_model_name(db_session):
 
 
 def test_get_agent_memory_returns_sections(db_session):
+    from app.brain import journal
     agent = Agent(name="Mem", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
-    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bull"))
+    journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: bull"])
     db_session.commit()
     client = _client(db_session)
     r = client.get(f"/api/agents/{agent.id}/memory")
     assert r.status_code == 200
     body = r.json()
     assert body["coin_theses"] == "BTC: bull"
-    assert body["trade_lessons"] == ""        # missing section -> empty string
+    assert body["trade_lessons"] == ""
 
 
 def test_get_events_returns_last_100_desc(db_session):
