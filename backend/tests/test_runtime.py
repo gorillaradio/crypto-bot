@@ -7,7 +7,7 @@ from app.brain.context import CoinSnapshot
 from app.brain.memory import ReflectionResult
 from app.brain.schema import Decision, Action, DecisionResult
 from app.brain import journal
-from app.brain.memory import MemoryUpdate
+from app.brain.memory import MemoryUpdate, DistillationResult
 
 
 class FakeMarket:
@@ -566,3 +566,77 @@ async def test_heartbeat_second_beat_benchmark_failure_keeps_basis(db_session):
     await run_heartbeat(db_session, agent, BrokenSecondBeat())                   # beat 2 benchmark fails
     assert db_session.query(BenchmarkBasis).filter_by(agent_id=agent.id).count() == 1          # basis intact
     assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count() == snaps_before
+
+
+def _sell_setup(db_session):
+    """An agent holding BTCUSDT with a FakeMarketLLM that sells it (→ triggers reflection)."""
+    agent = _llm_agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
+    market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
+    decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
+    return agent, market, decision
+
+
+async def test_distillation_runs_when_section_over_cap(db_session):
+    agent, market, decision = _sell_setup(db_session)
+    cap = journal.SECTION_CAPS["strategy_notes"]                 # 5
+    journal.append_entries(db_session, agent.id, "strategy_notes", [f"note{i}" for i in range(cap)])
+    db_session.commit()
+
+    # reflection adds one strategy note → 6 active > cap 5 → distillation fires for that section
+    def fake_reflect(*a, **k):
+        return ReflectionResult(MemoryUpdate(strategy_notes=["note-new"]))
+    seen = {}
+    def fake_distill(section, entries, cap_, instructions, adapter):
+        seen[section] = list(entries)
+        return DistillationResult(["merged"], parse_status="ok")
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=fake_reflect, distill=fake_distill)
+
+    assert "strategy_notes" in seen and len(seen["strategy_notes"]) == 6      # saw all active before compaction
+    active = journal.active_entries(db_session, agent.id, "strategy_notes")
+    assert [r.content for r in active] == ["merged"]                          # compacted set is now active
+    assert db_session.query(MemoryEntry).filter_by(agent_id=agent.id, section="strategy_notes",
+                                                   active=False).count() == 6  # old ones superseded, kept
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="distillation").one()
+    assert rec.parse_status == "ok" and rec.cycle_id is not None
+    ev = [e for e in db_session.query(Event).filter_by(agent_id=agent.id, kind="reflection").all()
+          if "distillata" in e.message]
+    assert len(ev) == 1 and "strategy_notes" in ev[0].message
+
+
+async def test_distillation_skipped_when_under_cap(db_session):
+    agent, market, decision = _sell_setup(db_session)
+    def fake_reflect(*a, **k):
+        return ReflectionResult(MemoryUpdate(strategy_notes=["just one"]))
+    calls = []
+    def fake_distill(*a, **k):
+        calls.append(1); return DistillationResult(["x"], parse_status="ok")
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=fake_reflect, distill=fake_distill)
+    assert calls == []                                                        # 1 entry, never over cap
+    assert db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="distillation").count() == 0
+
+
+async def test_distillation_failure_leaves_entries_and_records_failed(db_session):
+    agent, market, decision = _sell_setup(db_session)
+    cap = journal.SECTION_CAPS["strategy_notes"]
+    journal.append_entries(db_session, agent.id, "strategy_notes", [f"note{i}" for i in range(cap)])
+    db_session.commit()
+    def fake_reflect(*a, **k):
+        return ReflectionResult(MemoryUpdate(strategy_notes=["note-new"]))
+    def boom_distill(section, entries, cap_, instructions, adapter):
+        return DistillationResult(list(entries), parse_status="failed")       # keep originals
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=fake_reflect, distill=boom_distill)
+    active = journal.active_entries(db_session, agent.id, "strategy_notes")
+    assert len(active) == cap + 1                                             # nothing superseded on failure
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="distillation").one()
+    assert rec.parse_status == "failed" and rec.parsed_output is None

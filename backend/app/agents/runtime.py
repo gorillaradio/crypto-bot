@@ -10,7 +10,7 @@ from app.agents.strategy import breached
 from app.brain import evaluate as brain_decide_default
 from app.brain.context import build_context
 from app.brain import journal
-from app.brain.memory import run_reflection_result, ClosedTrade
+from app.brain.memory import run_reflection_result, run_distillation_result, ClosedTrade
 from app.brain.providers import make_adapter
 from app.eval.benchmarks import compute_benchmark_equities
 
@@ -81,9 +81,10 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
 
 
 async def run_decision(session, agent, market, symbols, *, wake_reason=None,
-                       brain_decide=brain_decide_default, reflect=run_reflection_result) -> None:
+                       brain_decide=brain_decide_default, reflect=run_reflection_result,
+                       distill=run_distillation_result) -> None:
     cycle_id = uuid4().hex
-    await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id, wake_reason)
+    await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill, cycle_id, wake_reason)
 
 
 _agent_locks: dict[int, asyncio.Lock] = {}
@@ -98,7 +99,8 @@ def _agent_lock(agent_id: int) -> asyncio.Lock:
 
 
 async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=None,
-                               brain_decide=brain_decide_default, reflect=run_reflection_result) -> bool:
+                               brain_decide=brain_decide_default, reflect=run_reflection_result,
+                               distill=run_distillation_result) -> bool:
     """Esegue una decisione sotto il lock dell'agente. Se una decisione è già in corso per
     questo agente, salta e ritorna False (quella in corso copre la situazione)."""
     lock = _agent_lock(agent.id)
@@ -106,11 +108,11 @@ async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=N
         return False
     async with lock:
         await run_decision(session, agent, market, symbols, wake_reason=wake_reason,
-                           brain_decide=brain_decide, reflect=reflect)
+                           brain_decide=brain_decide, reflect=reflect, distill=distill)
     return True
 
 
-async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, cycle_id: str, wake_reason=None) -> None:
+async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill, cycle_id: str, wake_reason=None) -> None:
     try:
         ctx = await build_agent_context(session, agent, market, symbols, wake_reason=wake_reason)
         universe_symbols = {c.symbol for c in ctx.universe}
@@ -189,6 +191,20 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                                            getattr(rr.entries, section), cycle_id=cycle_id)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="memoria aggiornata dopo trade chiuso"))
+                for section in journal.SECTIONS:
+                    if journal.active_count(session, agent.id, section) > journal.SECTION_CAPS[section]:
+                        current = [e.content for e in journal.active_entries(session, agent.id, section)]
+                        dres = distill(section, current, journal.SECTION_CAPS[section],
+                                       agent.instructions, adapter)
+                        _record_llm_call(session, agent, cycle_id, "distillation", trigger,
+                                         system=dres.system, user=dres.user, raw=dres.raw,
+                                         parsed_output=(json.dumps(dres.entries)
+                                                        if dres.parse_status == "ok" else None),
+                                         parse_status=dres.parse_status, latency_ms=dres.latency_ms)
+                        if dres.parse_status == "ok":
+                            journal.apply_distillation(session, agent.id, section, dres.entries, cycle_id=cycle_id)
+                            session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
+                                              message=f"memoria distillata: {section}"))
             else:
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="reflection: risposta non valida, memoria invariata"))
