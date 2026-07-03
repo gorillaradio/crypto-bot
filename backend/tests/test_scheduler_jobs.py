@@ -37,3 +37,33 @@ class _CtxSession:
     def __init__(self, s): self._s = s
     def __enter__(self): return self._s
     def __exit__(self, *a): return False
+
+
+async def test_news_poll_tick_ingests_observations(db_session, monkeypatch):
+    from app.db.models import Observation
+    from app.feeds.rss import FeedItem
+
+    class FakeAdapter:
+        async def fetch(self):
+            return [FeedItem(source="CoinDesk", title="Bitcoin rallies", url="https://n/1",
+                             summary="", published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc))]
+
+    monkeypatch.setattr(jobs, "get_session", lambda: _CtxSession(db_session))
+    monkeypatch.setattr(jobs, "RssFeedAdapter", lambda: FakeAdapter())
+
+    await jobs._news_poll_tick()
+    obs = db_session.query(Observation).one()
+    assert obs.title == "Bitcoin rallies" and obs.source == "CoinDesk"
+
+
+async def test_news_poll_tick_survives_ingest_error(db_session, monkeypatch):
+    from app.db.models import Observation
+
+    class BrokenAdapter:
+        async def fetch(self): raise RuntimeError("feeds down")
+
+    monkeypatch.setattr(jobs, "get_session", lambda: _CtxSession(db_session))
+    monkeypatch.setattr(jobs, "RssFeedAdapter", lambda: BrokenAdapter())
+
+    await jobs._news_poll_tick()                       # must NOT raise
+    assert db_session.query(Observation).count() == 0

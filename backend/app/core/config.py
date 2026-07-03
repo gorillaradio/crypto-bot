@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     heartbeat_seconds: int = 300
     decision_seconds: int = 3600
     scoring_seconds: int = 900       # re-score matured decisions every 15 min
+    news_poll_seconds: int = 900     # poll crypto news feeds every 15 min
     universe_default: str = "TOP_100"
 
     # --- auth ---
