@@ -41,24 +41,6 @@ def test_position_links_to_agent(db_session):
     assert pos in agent.positions
 
 
-def test_agent_memory_unique_per_section(db_session):
-    from app.db.models import AgentMemory
-    import pytest
-    from sqlalchemy.exc import IntegrityError
-    agent = Agent(name="M", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
-    db_session.add(agent); db_session.commit()
-    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bull"))
-    db_session.commit()
-    # a different section for the same agent is allowed
-    db_session.add(AgentMemory(agent_id=agent.id, section="trade_lessons", content="sold too early"))
-    db_session.commit()
-    # a duplicate (agent, section) violates the unique constraint
-    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bear"))
-    with pytest.raises(IntegrityError):
-        db_session.commit()
-
-
 def _mk_agent(session, **over):
     kw = dict(name="T", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),

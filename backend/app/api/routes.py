@@ -3,7 +3,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
-from app.db.models import Agent, AgentMemory, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, Position, Trade
+from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Position, Trade
 from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, MemoryOut, ModelMetricsOut, PositionOut, PromptPreviewOut
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
@@ -98,7 +98,7 @@ def delete_agent(agent_id: int, session=Depends(session_dep), _: str = Depends(r
         (session.query(DecisionScore)
          .filter(DecisionScore.decision_record_id.in_(rec_ids))
          .delete(synchronize_session=False))
-    for model in (Position, Trade, EquitySnapshot, Event, AgentMemory, DecisionRecord,
+    for model in (Position, Trade, EquitySnapshot, Event, MemoryEntry, DecisionRecord,
                   BenchmarkBasis, BenchmarkSnapshot):
         session.query(model).filter_by(agent_id=agent_id).delete(synchronize_session=False)
     session.delete(agent)

@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes, auth
-from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, Trade, Event, AgentMemory
+from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, Trade, Event, MemoryEntry
 from app.brain.context import CoinSnapshot
 
 
@@ -194,7 +194,7 @@ def test_delete_agent_removes_agent_and_children(db_session):
               price=Decimal("100"), fee=Decimal("0.1")),
         EquitySnapshot(agent_id=aid, equity_usd=Decimal("100")),
         Event(agent_id=aid, kind="decision", message="hi"),
-        AgentMemory(agent_id=aid, section="coin_theses", content="BTC: bull"),
+        MemoryEntry(agent_id=aid, section="coin_theses", content="BTC: bull"),
     ])
     db_session.commit()
 
@@ -205,7 +205,7 @@ def test_delete_agent_removes_agent_and_children(db_session):
     assert db_session.query(Trade).filter_by(agent_id=aid).count() == 0
     assert db_session.query(EquitySnapshot).filter_by(agent_id=aid).count() == 0
     assert db_session.query(Event).filter_by(agent_id=aid).count() == 0
-    assert db_session.query(AgentMemory).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(MemoryEntry).filter_by(agent_id=aid).count() == 0
 
 
 def test_delete_agent_404_when_missing(db_session):
