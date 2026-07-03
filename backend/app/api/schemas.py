@@ -48,6 +48,28 @@ class BenchmarkPoint(BaseModel):
     equity_usd: Decimal
 
 
+class BenchmarkMetric(BaseModel):
+    return_pct: Decimal
+    max_drawdown_pct: Decimal
+    sharpe: Decimal
+
+
+class AgentMetricsOut(BaseModel):
+    return_pct: Decimal
+    max_drawdown_pct: Decimal
+    sharpe: Decimal
+    hit_rate_24h: Decimal | None = None
+    hit_rate_7d: Decimal | None = None
+    benchmarks: dict[str, BenchmarkMetric]
+
+
+class ModelMetricsOut(BaseModel):
+    model_name: str | None = None
+    n_scored_actions: int
+    hit_rate_24h: Decimal | None = None
+    hit_rate_7d: Decimal | None = None
+
+
 class EventOut(BaseModel):
     timestamp: datetime
     kind: str

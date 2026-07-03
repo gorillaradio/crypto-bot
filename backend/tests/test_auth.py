@@ -124,3 +124,12 @@ def test_revoke_blocks_viewer_immediately(db_session, monkeypatch):
 def test_delete_missing_share_link_404(client):
     client.post("/api/auth/login", json={"password": "secret"})
     assert client.delete("/api/share-links/9999").status_code == 404
+
+
+def test_metrics_require_a_session(client, db_session):
+    assert client.get("/api/agents/1/metrics").status_code == 401
+    assert client.get("/api/metrics/by-model").status_code == 401
+    db_session.add(ShareLink(token="v5")); db_session.commit()
+    client.post("/api/auth/viewer", json={"token": "v5"})
+    assert client.get("/api/agents/1/metrics").status_code == 200
+    assert client.get("/api/metrics/by-model").status_code == 200

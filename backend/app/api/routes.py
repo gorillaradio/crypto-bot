@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, AgentMemory, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, Position, Trade
-from app.api.schemas import AgentCreate, AgentOut, AgentUpdate, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, MemoryOut, PositionOut, PromptPreviewOut
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, MemoryOut, ModelMetricsOut, PositionOut, PromptPreviewOut
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
+from app.eval.metrics import total_return_pct, max_drawdown_pct, sharpe, hit_rate
 
 router = APIRouter(prefix="/api")
 
@@ -137,6 +138,58 @@ def get_benchmarks(agent_id: int, session=Depends(session_dep), _: str = Depends
         .order_by(BenchmarkSnapshot.timestamp.asc(), BenchmarkSnapshot.id.asc())
         .all()
     )
+
+
+@router.get("/agents/{agent_id}/metrics", response_model=AgentMetricsOut)
+def get_agent_metrics(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
+    eq = [r.equity_usd for r in
+          session.query(EquitySnapshot).filter_by(agent_id=agent_id)
+          .order_by(EquitySnapshot.timestamp.asc(), EquitySnapshot.id.asc()).all()]
+    benchmarks: dict[str, BenchmarkMetric] = {}
+    for kind in ("hodl_btc", "equal_weight", "random_p50"):
+        series = [r.equity_usd for r in
+                  session.query(BenchmarkSnapshot).filter_by(agent_id=agent_id, kind=kind)
+                  .order_by(BenchmarkSnapshot.timestamp.asc(), BenchmarkSnapshot.id.asc()).all()]
+        if series:
+            benchmarks[kind] = BenchmarkMetric(
+                return_pct=total_return_pct(series),
+                max_drawdown_pct=max_drawdown_pct(series),
+                sharpe=sharpe(series))
+
+    def _hit_rate(window: str):
+        rows = (session.query(DecisionScore)
+                .join(DecisionRecord, DecisionScore.decision_record_id == DecisionRecord.id)
+                .filter(DecisionRecord.agent_id == agent_id, DecisionScore.window == window).all())
+        return hit_rate(sum(r.n_hits for r in rows), sum(r.n_actions for r in rows))
+
+    return AgentMetricsOut(
+        return_pct=total_return_pct(eq),
+        max_drawdown_pct=max_drawdown_pct(eq),
+        sharpe=sharpe(eq),
+        hit_rate_24h=_hit_rate("24h"),
+        hit_rate_7d=_hit_rate("7d"),
+        benchmarks=benchmarks)
+
+
+@router.get("/metrics/by-model", response_model=list[ModelMetricsOut])
+def get_model_metrics(session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
+    rows = (session.query(DecisionRecord.model_name, DecisionScore.window,
+                          DecisionScore.n_hits, DecisionScore.n_actions)
+            .join(DecisionScore, DecisionScore.decision_record_id == DecisionRecord.id)
+            .filter(DecisionRecord.kind == "decision").all())
+    agg: dict = {}
+    for model_name, window, nh, na in rows:
+        d = agg.setdefault(model_name, {"24h": [0, 0], "7d": [0, 0]})
+        d[window][0] += nh
+        d[window][1] += na
+    return [
+        ModelMetricsOut(
+            model_name=model_name,
+            n_scored_actions=d["24h"][1] + d["7d"][1],
+            hit_rate_24h=hit_rate(*d["24h"]),
+            hit_rate_7d=hit_rate(*d["7d"]))
+        for model_name, d in agg.items()
+    ]
 
 
 @router.get("/agents/{agent_id}/memory", response_model=MemoryOut)

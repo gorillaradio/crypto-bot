@@ -397,3 +397,55 @@ def test_delete_agent_removes_benchmark_rows(db_session):
     assert client.delete(f"/api/agents/{aid}").status_code == 204
     assert db_session.query(BenchmarkBasis).filter_by(agent_id=aid).count() == 0
     assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=aid).count() == 0
+
+
+def _decision_with_score(db_session, agent_id, model_name, window, n_actions, n_hits):
+    from app.db.models import DecisionRecord, DecisionScore
+    rec = DecisionRecord(agent_id=agent_id, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name=model_name, latency_ms=1)
+    db_session.add(rec); db_session.commit()
+    db_session.add(DecisionScore(decision_record_id=rec.id, window=window,
+                                 n_actions=n_actions, n_hits=n_hits))
+    db_session.commit()
+    return rec
+
+
+def test_agent_metrics_reports_return_drawdown_and_hitrate(db_session):
+    from app.db.models import EquitySnapshot, BenchmarkSnapshot
+    agent = Agent(name="Mx", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    for v in ("100", "120", "90"):
+        db_session.add(EquitySnapshot(agent_id=agent.id, equity_usd=Decimal(v)))
+    db_session.add(BenchmarkSnapshot(agent_id=agent.id, kind="hodl_btc", equity_usd=Decimal("100")))
+    db_session.add(BenchmarkSnapshot(agent_id=agent.id, kind="hodl_btc", equity_usd=Decimal("110")))
+    db_session.commit()
+    _decision_with_score(db_session, agent.id, "deepseek/x", "24h", 4, 3)
+    client = _client(db_session)
+    body = client.get(f"/api/agents/{agent.id}/metrics").json()
+    assert Decimal(body["return_pct"]) == Decimal("-10")            # 100 → 90
+    assert Decimal(body["max_drawdown_pct"]) == Decimal("25")       # 120 → 90
+    assert Decimal(body["hit_rate_24h"]) == Decimal("75")
+    assert body["hit_rate_7d"] is None                             # no 7d scores
+    assert Decimal(body["benchmarks"]["hodl_btc"]["return_pct"]) == Decimal("10")
+
+
+def test_agent_metrics_unknown_agent_is_all_zero(db_session):
+    client = _client(db_session)
+    body = client.get("/api/agents/9999/metrics").json()
+    assert Decimal(body["return_pct"]) == Decimal("0")
+    assert body["benchmarks"] == {} and body["hit_rate_24h"] is None
+
+
+def test_model_metrics_aggregates_hitrate_by_model(db_session):
+    client = _client(db_session)
+    aid = _mk(client, name="MdlA").json()["id"]
+    _decision_with_score(db_session, aid, "deepseek/x", "24h", 2, 2)
+    _decision_with_score(db_session, aid, "deepseek/x", "24h", 2, 1)
+    _decision_with_score(db_session, aid, "glm/y", "24h", 1, 0)
+    body = client.get("/api/metrics/by-model").json()
+    by_model = {m["model_name"]: m for m in body}
+    assert Decimal(by_model["deepseek/x"]["hit_rate_24h"]) == Decimal("75")   # 3 hits / 4 actions
+    assert Decimal(by_model["glm/y"]["hit_rate_24h"]) == Decimal("0")
