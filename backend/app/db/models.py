@@ -137,3 +137,16 @@ class MemoryEntry(Base):
     cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class Observation(Base):
+    __tablename__ = "observations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(60))                    # e.g. "CoinDesk"
+    kind: Mapped[str] = mapped_column(String(20), default="news")      # "news" | "market_signal" (v2)
+    title: Mapped[str] = mapped_column(String)                         # normalized headline
+    url: Mapped[str | None] = mapped_column(String, nullable=True)
+    symbols_json: Mapped[str] = mapped_column(String, default="[]")    # JSON list of base symbols; "[]" = market-wide
+    dedup_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)

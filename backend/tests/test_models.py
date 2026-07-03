@@ -165,3 +165,27 @@ def test_memory_entry_allows_many_rows_per_section(db_session):
     ])
     db_session.commit()                              # no unique constraint → both persist
     assert db_session.query(MemoryEntry).filter_by(agent_id=agent.id, section="coin_theses").count() == 2
+
+
+def test_observation_persists_with_defaults(db_session):
+    from app.db.models import Observation
+    obs = Observation(source="CoinDesk", title="Bitcoin ETF sees record inflows",
+                      url="https://x/1", dedup_hash="h1",
+                      published_at=datetime(2026, 7, 3, 10, 30, tzinfo=timezone.utc))
+    db_session.add(obs); db_session.commit(); db_session.refresh(obs)
+    assert obs.id is not None and obs.created_at is not None
+    assert obs.kind == "news"            # default kind
+    assert obs.symbols_json == "[]"      # default: market-wide until tagged
+
+
+def test_observation_dedup_hash_is_unique(db_session):
+    from app.db.models import Observation
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    now = datetime(2026, 7, 3, 10, 30, tzinfo=timezone.utc)
+    db_session.add(Observation(source="CoinDesk", title="a", dedup_hash="dup", published_at=now))
+    db_session.commit()
+    db_session.add(Observation(source="Cointelegraph", title="b", dedup_hash="dup", published_at=now))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
