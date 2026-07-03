@@ -80,3 +80,18 @@ async def test_reflection_and_failed_records_are_skipped(db_session):
     # only scorable kind="decision"/parse ok records count; neither of these qualifies
     assert db_session.query(DecisionScore).filter_by(decision_record_id=refl.id).count() == 0
     assert db_session.query(DecisionScore).filter_by(decision_record_id=failed.id).count() == 0
+
+
+async def test_scoring_handles_naive_created_at_from_sqlite(db_session):
+    """SQLite returns tz-NAIVE datetimes on round-trip; the job must treat them as UTC
+    (via _as_utc) rather than raising TypeError. expire_all() forces a fresh DB load so
+    created_at comes back naive — the exact condition _as_utc guards against."""
+    agent = _agent(db_session)
+    made = datetime.now(timezone.utc) - timedelta(days=8)
+    rec = _decision(db_session, agent.id, made)
+    db_session.expire_all()                        # drop identity-map cache → re-SELECT from SQLite
+    reloaded = db_session.query(DecisionRecord).filter_by(id=rec.id).one()
+    assert reloaded.created_at.tzinfo is None      # confirm the naive round-trip actually happens
+    n = await score_matured_decisions(db_session, FakePriceMarket({}, default=Decimal("100")),
+                                      datetime.now(timezone.utc))
+    assert n == 2                                  # both windows scored, no TypeError from naive compare
