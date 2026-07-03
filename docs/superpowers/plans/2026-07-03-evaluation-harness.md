@@ -1218,7 +1218,10 @@ def test_sharpe_zero_when_flat():
 
 
 def test_sharpe_positive_for_steady_growth():
-    assert sharpe([Decimal("100"), Decimal("110"), Decimal("121")]) > Decimal("0")
+    # Varying step returns (10% then ~13.6%) → nonzero stdev → positive Sharpe.
+    # NB: [100,110,121] is exact 10% compounding → identical step returns → stdev 0 → Sharpe 0
+    # (which would falsify this assertion), so use a non-geometric series.
+    assert sharpe([Decimal("100"), Decimal("110"), Decimal("125")]) > Decimal("0")
 
 
 def test_hit_rate():
