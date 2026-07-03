@@ -182,7 +182,7 @@ operativa durante tutto il percorso (nessuna fase è un big-bang rewrite).
 |------|-------|-------|------|
 | 1 — Decision record | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-02-decision-record](2026-07-02-decision-record.md) | 7 commit, 130 test verdi, review opus ready-to-merge |
 | 2 — Evaluation harness | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-evaluation-harness](2026-07-03-evaluation-harness.md) | 15 task (13 piano + 2 finaliz.), 18 commit, 173 backend + 39 frontend verdi, final review opus ready-to-merge |
-| 3 — Memoria a journal | ⬜ | — | |
+| 3 — Memoria a journal | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-memoria-journal](2026-07-03-memoria-journal.md) | 10 task, 10 commit, 188 backend + 41 frontend verdi, 2 migration (create+backfill, drop), final review opus ready-to-merge |
 | 4 — Ingestion news | ⬜ | — | ricerca provider gratuiti da fare |
 | 5 — Trigger engine | ⬜ | — | dipende da 4 |
 | 6 — Brain a due stadi | ⬜ | — | dipende da 4, 5 |
