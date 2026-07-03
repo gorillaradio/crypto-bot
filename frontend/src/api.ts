@@ -16,6 +16,16 @@ export type Agent = {
 };
 export type EquityPoint = { timestamp: string; equity_usd: string };
 export type BenchmarkPoint = { kind: string; timestamp: string; equity_usd: string };
+export type BenchmarkMetric = { return_pct: string; max_drawdown_pct: string; sharpe: string };
+export type AgentMetrics = {
+  return_pct: string; max_drawdown_pct: string; sharpe: string;
+  hit_rate_24h: string | null; hit_rate_7d: string | null;
+  benchmarks: Record<string, BenchmarkMetric>;
+};
+export type ModelMetrics = {
+  model_name: string | null; n_scored_actions: number;
+  hit_rate_24h: string | null; hit_rate_7d: string | null;
+};
 export type AgentEvent = { timestamp: string; kind: string; message: string; cycle_id: string | null };
 export type Position = {
   symbol: string;
@@ -41,6 +51,8 @@ async function get<T>(path: string): Promise<T> {
 export const getAgents = () => get<Agent[]>("/api/agents");
 export const getEquity = (id: number) => get<EquityPoint[]>(`/api/agents/${id}/equity`);
 export const getBenchmarks = (id: number) => get<BenchmarkPoint[]>(`/api/agents/${id}/benchmarks`);
+export const getAgentMetrics = (id: number) => get<AgentMetrics>(`/api/agents/${id}/metrics`);
+export const getModelMetrics = () => get<ModelMetrics[]>("/api/metrics/by-model");
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
