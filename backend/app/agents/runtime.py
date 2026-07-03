@@ -15,7 +15,7 @@ from app.brain.providers import make_adapter
 from app.eval.benchmarks import compute_benchmark_equities
 from app.feeds.query import recent_observations_for
 from app.agents.triggers import (movement_change, count_recent_event_wakes,
-                                  advance_news_watermark, fresh_news_for)
+                                  fresh_news_for)
 
 
 def universe_size(agent) -> int:
@@ -126,6 +126,10 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
             p.breach_armed = False
         for p in spiked_positions:
             p.move_armed = False
+        if news_hit is not None and fresh_breach is None and fresh_move is None:
+            # only a news wake advances the bookmark, and only to the obs that triggered it —
+            # never past held-coin news the agent didn't act on (loss-free)
+            agent.last_seen_observation_id = news_hit.id
         session.commit()
 
 
@@ -225,9 +229,6 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                      parse_status=result.parse_status, latency_ms=result.latency_ms)
     session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
                       message=f"{kind_label}: {note} — {actions} operazioni, {skipped} saltate, {errors} errori"))
-    session.commit()
-
-    advance_news_watermark(session, agent)
     session.commit()
 
     if closed_trades:

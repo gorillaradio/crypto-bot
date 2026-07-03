@@ -786,36 +786,6 @@ async def test_movement_klines_error_isolated(db_session):
     assert db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).count() == 1  # beat completed
 
 
-async def test_decision_advances_news_watermark(db_session):
-    import json as _json
-    from app.db.models import Observation
-    agent = _llm_agent(db_session)
-    o = Observation(source="CoinDesk", kind="news", title="btc", url="u",
-                    symbols_json=_json.dumps(["BTC"]), dedup_hash="u",
-                    published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc))
-    db_session.add(o); db_session.commit()
-    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
-    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
-    await run_decision(db_session, agent, market, ["BTCUSDT"],
-                       brain_decide=lambda ctx, adapter: DecisionResult(Decision(actions=[], note="h")))
-    assert agent.last_seen_observation_id == o.id
-
-
-async def test_failed_decision_does_not_advance_watermark(db_session):
-    import json as _json
-    from app.db.models import Observation
-    agent = _llm_agent(db_session)
-    o = Observation(source="CoinDesk", kind="news", title="btc", url="u",
-                    symbols_json=_json.dumps(["BTC"]), dedup_hash="u",
-                    published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc))
-    db_session.add(o); db_session.commit()
-
-    class Broken:
-        async def get_universe_snapshot(self, symbols): raise RuntimeError("down")
-    await run_decision(db_session, agent, Broken(), ["BTCUSDT"])
-    assert agent.last_seen_observation_id is None            # error path returned before advancing
-
-
 def _news_agent_holding_btc(db_session):
     import json as _json
     from app.db.models import Observation
@@ -863,3 +833,38 @@ async def test_movement_takes_priority_over_news(db_session):
         calls.append(trigger); return True
     await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
     assert calls == ["movement"]                                   # movement chosen over news
+
+
+async def test_news_wake_advances_watermark_to_triggering_obs_not_global_max(db_session):
+    import json as _json
+    from app.db.models import Observation
+    agent = _news_agent_holding_btc(db_session)          # holds BTC + one BTC obs (id 1)
+    o2 = Observation(source="CoinDesk", kind="news", title="Bitcoin hits high", url="u2",
+                     symbols_json=_json.dumps(["BTC"]), dedup_hash="u2",
+                     published_at=datetime(2026, 7, 3, 11, 0, tzinfo=timezone.utc))
+    o3 = Observation(source="CoinDesk", kind="news", title="Ethereum news", url="u3",
+                     symbols_json=_json.dumps(["ETH"]), dedup_hash="u3",   # NOT held, newer → must be skipped
+                     published_at=datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc))
+    db_session.add_all([o2, o3]); db_session.commit()
+    market = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("101")])  # calm → news only
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None, trigger=None):
+        return True                                       # simulate the decision ran
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert agent.last_seen_observation_id == o2.id        # advanced to the triggering HELD obs...
+    assert agent.last_seen_observation_id != o3.id        # ...NOT the global max (unheld ETH), which is the fix
+
+
+async def test_breach_wake_does_not_advance_news_watermark(db_session):
+    import json as _json
+    from app.db.models import Observation
+    agent = _armed_agent(db_session)                     # stop/take set, cash 0
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.add(Observation(source="CoinDesk", kind="news", title="BTC news", url="ux",
+                               symbols_json=_json.dumps(["BTC"]), dedup_hash="ux",
+                               published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc)))
+    db_session.commit()
+    market = FakeMarketMove(price=Decimal("85"), closes=[Decimal("100"), Decimal("85")])  # -15% → breach fires (priority)
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None, trigger=None):
+        return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert agent.last_seen_observation_id is None         # a breach wake must NOT advance the news bookmark
