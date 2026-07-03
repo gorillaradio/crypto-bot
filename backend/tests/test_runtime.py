@@ -814,3 +814,52 @@ async def test_failed_decision_does_not_advance_watermark(db_session):
         async def get_universe_snapshot(self, symbols): raise RuntimeError("down")
     await run_decision(db_session, agent, Broken(), ["BTCUSDT"])
     assert agent.last_seen_observation_id is None            # error path returned before advancing
+
+
+def _news_agent_holding_btc(db_session):
+    import json as _json
+    from app.db.models import Observation
+    a = Agent(name="N", duration_start=datetime.now(timezone.utc),
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+    db_session.add(a); db_session.commit()
+    db_session.add(Position(agent_id=a.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.add(Observation(source="CoinDesk", kind="news", title="Bitcoin ETF approved", url="u1",
+                               symbols_json=_json.dumps(["BTC"]), dedup_hash="u1",
+                               published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc)))
+    db_session.commit()
+    return a
+
+
+async def test_news_fresh_triggers_news_wake(db_session):
+    agent = _news_agent_holding_btc(db_session)
+    market = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("101")])  # calm price
+    calls = []
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None, trigger=None):
+        calls.append((wake_reason, trigger)); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert len(calls) == 1 and calls[0][1] == "news" and "Bitcoin ETF approved" in calls[0][0]
+
+
+async def test_news_suppressed_when_budget_exhausted(db_session):
+    from app.db.models import DecisionRecord
+    agent = _news_agent_holding_btc(db_session)
+    for _ in range(2):
+        db_session.add(DecisionRecord(agent_id=agent.id, cycle_id="c", kind="decision", trigger="news",
+                       system_prompt="s", user_prompt="u", raw_response="r", parsed_output="{}",
+                       parse_status="ok", model_provider="openrouter", model_name="m", latency_ms=1))
+    db_session.commit()
+    market = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("101")])
+    calls = []
+    async def fake_trigger(*a, **k): calls.append(1); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert calls == []                                             # deferred; watermark untouched
+
+
+async def test_movement_takes_priority_over_news(db_session):
+    agent = _news_agent_holding_btc(db_session)                    # holds BTC + has fresh BTC news
+    market = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("108")])  # +8% move too
+    calls = []
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None, trigger=None):
+        calls.append(trigger); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert calls == ["movement"]                                   # movement chosen over news

@@ -14,7 +14,8 @@ from app.brain.memory import run_reflection_result, run_distillation_result, Clo
 from app.brain.providers import make_adapter
 from app.eval.benchmarks import compute_benchmark_equities
 from app.feeds.query import recent_observations_for
-from app.agents.triggers import movement_change, count_recent_event_wakes, advance_news_watermark
+from app.agents.triggers import (movement_change, count_recent_event_wakes,
+                                  advance_news_watermark, fresh_news_for)
 
 
 def universe_size(agent) -> int:
@@ -92,7 +93,8 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
 
     await record_benchmark_snapshot(session, agent, market)
 
-    if fresh_breach is None and fresh_move is None:
+    news_hit = fresh_news_for(session, agent)
+    if fresh_breach is None and fresh_move is None and news_hit is None:
         return
     n = universe_size(agent)
     symbols = await market.get_top_symbols("USDT", n)
@@ -107,11 +109,17 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
     else:
         if count_recent_event_wakes(session, agent.id) >= settings.wake_budget_per_hour:
             return                                # budget exhausted → defer (arm state untouched)
-        symbol, change = fresh_move
-        wake_reason = (f"Risveglio fuori ciclo: {symbol} si è mossa del "
-                       f"{change * Decimal('100'):+.2f}% nell'ultima ora. Rivaluta.")
+        if fresh_move is not None:
+            symbol, change = fresh_move
+            wake_reason = (f"Risveglio fuori ciclo: {symbol} si è mossa del "
+                           f"{change * Decimal('100'):+.2f}% nell'ultima ora. Rivaluta.")
+            trig = "movement"
+        else:
+            wake_reason = (f"Risveglio fuori ciclo: notizia rilevante — "
+                           f"{news_hit.title}. Rivaluta.")
+            trig = "news"
         triggered = await trigger_decision(session, agent, market, symbols,
-                                           wake_reason=wake_reason, trigger="movement")
+                                           wake_reason=wake_reason, trigger=trig)
 
     if triggered:
         for p in breached_positions:
