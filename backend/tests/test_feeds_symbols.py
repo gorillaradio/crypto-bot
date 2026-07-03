@@ -22,3 +22,9 @@ def test_word_boundary_avoids_false_positive():
 def test_case_insensitive_and_empty_text():
     assert match_symbols("ethereum upgrade") == ["ETH"]
     assert match_symbols("") == []
+
+
+def test_polygon_resolves_to_single_symbol():
+    # Polygon renamed MATIC→POL (Binance ticker is POL); name + legacy ticker resolve to POL, never both.
+    assert match_symbols("Polygon upgrades its bridge") == ["POL"]
+    assert match_symbols("MATIC holders migrate their tokens") == ["POL"]
