@@ -25,3 +25,22 @@ def test_new_columns_defaults(db_session):
                    quantity=Decimal("1"), avg_price=Decimal("100"))
     db_session.add(pos); db_session.commit()
     assert pos.move_armed is True
+
+
+from app.agents.triggers import movement_change
+
+
+def test_movement_change_up():
+    assert movement_change(Decimal("100"), Decimal("108")) == Decimal("0.08")
+
+
+def test_movement_change_down_is_signed():
+    assert movement_change(Decimal("100"), Decimal("93")) == Decimal("-0.07")
+
+
+def test_movement_change_flat():
+    assert movement_change(Decimal("100"), Decimal("100")) == Decimal("0")
+
+
+def test_movement_change_zero_first_guards():
+    assert movement_change(Decimal("0"), Decimal("50")) == Decimal("0")
