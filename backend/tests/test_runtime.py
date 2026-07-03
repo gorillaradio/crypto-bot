@@ -661,3 +661,26 @@ async def test_build_agent_context_includes_recent_observations(db_session):
     titles = [o.title for o in ctx.observations]
     assert "Bitcoin ETF inflows" in titles          # universe = BTC → included
     assert "Ethereum upgrade" not in titles          # ETH not in this universe → excluded
+
+
+async def test_run_decision_explicit_trigger_wins(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    await run_decision(db_session, agent, market, ["BTCUSDT"], wake_reason="x moved 6%",
+                       trigger="movement",
+                       brain_decide=lambda ctx, adapter: DecisionResult(Decision(actions=[], note="h")))
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id).one()
+    assert rec.trigger == "movement"
+
+
+async def test_run_decision_guarded_forwards_trigger(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    ran = await run_decision_guarded(db_session, agent, market, ["BTCUSDT"], wake_reason="n",
+                                     trigger="news",
+                                     brain_decide=lambda ctx, adapter: DecisionResult(Decision(actions=[], note="h")))
+    assert ran is True
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id).one()
+    assert rec.trigger == "news"

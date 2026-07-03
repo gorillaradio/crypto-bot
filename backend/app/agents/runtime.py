@@ -82,11 +82,12 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
         session.commit()
 
 
-async def run_decision(session, agent, market, symbols, *, wake_reason=None,
+async def run_decision(session, agent, market, symbols, *, wake_reason=None, trigger=None,
                        brain_decide=brain_decide_default, reflect=run_reflection_result,
                        distill=run_distillation_result) -> None:
     cycle_id = uuid4().hex
-    await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill, cycle_id, wake_reason)
+    await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill,
+                            cycle_id, wake_reason, trigger)
 
 
 _agent_locks: dict[int, asyncio.Lock] = {}
@@ -100,7 +101,7 @@ def _agent_lock(agent_id: int) -> asyncio.Lock:
     return lock
 
 
-async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=None,
+async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=None, trigger=None,
                                brain_decide=brain_decide_default, reflect=run_reflection_result,
                                distill=run_distillation_result) -> bool:
     """Esegue una decisione sotto il lock dell'agente. Se una decisione è già in corso per
@@ -109,12 +110,13 @@ async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=N
     if lock.locked():
         return False
     async with lock:
-        await run_decision(session, agent, market, symbols, wake_reason=wake_reason,
+        await run_decision(session, agent, market, symbols, wake_reason=wake_reason, trigger=trigger,
                            brain_decide=brain_decide, reflect=reflect, distill=distill)
     return True
 
 
-async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill, cycle_id: str, wake_reason=None) -> None:
+async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill,
+                            cycle_id: str, wake_reason=None, trigger=None) -> None:
     try:
         ctx = await build_agent_context(session, agent, market, symbols, wake_reason=wake_reason)
         universe_symbols = {c.symbol for c in ctx.universe}
@@ -127,7 +129,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         return
 
     decision = result.decision
-    trigger = "breach" if wake_reason else "schedule"
+    trigger = trigger or ("breach" if wake_reason else "schedule")
 
     held = {p.symbol: p for p in agent.positions}
     actions = skipped = errors = 0
