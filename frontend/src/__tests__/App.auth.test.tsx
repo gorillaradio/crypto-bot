@@ -7,6 +7,8 @@ vi.mock("../api", () => ({
   getMe: vi.fn(),
   getAgents: vi.fn(),
   getEquity: vi.fn(() => Promise.resolve([])),
+  getBenchmarks: vi.fn(() => Promise.resolve([])),
+  getAgentMetrics: vi.fn(() => Promise.resolve(null)),
   getEvents: vi.fn(() => Promise.resolve([])),
   getPositions: vi.fn(() => Promise.resolve([])),
   getMemory: vi.fn(() => Promise.resolve(null)),

@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getAgents, getEquity, getEvents, getPositions, getMemory,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
+  getBenchmarks, getAgentMetrics,
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
+  type BenchmarkPoint, type AgentMetrics,
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { EquityChart } from "./components/EquityChart";
+import { BenchmarkChart } from "./components/BenchmarkChart";
+import { MetricsPanel } from "./components/MetricsPanel";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
@@ -55,6 +59,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selId, setSelId] = useState<number | null>(null);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
+  const [benchmarks, setBenchmarks] = useState<BenchmarkPoint[]>([]);
+  const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
@@ -81,6 +87,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     setMemory(null);
     const load = () => {
       getEquity(selId).then(setEquity).catch(onErr);
+      getBenchmarks(selId).then(setBenchmarks).catch(onErr);
+      getAgentMetrics(selId).then(setMetrics).catch(onErr);
       getEvents(selId).then(setEvents).catch(onErr);
       getPositions(selId).then(setPositions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);
@@ -190,6 +198,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                   <span className="text-xs text-muted-foreground">equity vs investimento iniziale di $100</span>
                 </div>
                 <EquityChart data={equity} baseline={100} />
+                <BenchmarkChart equity={equity} benchmarks={benchmarks} />
+                <MetricsPanel metrics={metrics} />
               </CardContent>
             </Card>
 
