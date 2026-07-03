@@ -1,6 +1,7 @@
 import asyncio
 import json
 from dataclasses import asdict
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
@@ -254,8 +255,9 @@ async def record_benchmark_snapshot(session, agent, market) -> None:
         equities = compute_benchmark_equities(
             initial=basis.initial_capital, universe=universe,
             start_prices=start_prices, now_prices=now_prices, seed=agent.id)
+        ts = datetime.now(timezone.utc)
         for kind, equity in equities.items():
-            session.add(BenchmarkSnapshot(agent_id=agent.id, kind=kind, equity_usd=equity))
+            session.add(BenchmarkSnapshot(agent_id=agent.id, kind=kind, equity_usd=equity, timestamp=ts))
         session.commit()
     except Exception:
         session.rollback()

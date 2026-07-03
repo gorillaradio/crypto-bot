@@ -489,6 +489,14 @@ async def test_heartbeat_writes_benchmark_snapshots_and_basis(db_session):
         assert r.equity_usd == Decimal("100")
 
 
+async def test_benchmark_snapshots_of_one_beat_share_timestamp(db_session):
+    agent = _agent(db_session, "100")
+    await run_heartbeat(db_session, agent, FakeMarketHB(price=Decimal("100")))
+    rows = db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).all()
+    assert len(rows) == 5
+    assert len({r.timestamp for r in rows}) == 1     # one beat → one shared timestamp
+
+
 async def test_heartbeat_basis_frozen_across_beats(db_session):
     agent = _agent(db_session, "100")
     await run_heartbeat(db_session, agent, FakeMarketHB(price=Decimal("100")))   # freezes basis at 100
