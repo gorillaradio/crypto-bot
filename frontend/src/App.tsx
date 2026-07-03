@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getAgents, getEquity, getEvents, getPositions, getMemory,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
-  getBenchmarks, getAgentMetrics,
+  getBenchmarks, getAgentMetrics, getModelMetrics,
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
-  type BenchmarkPoint, type AgentMetrics,
+  type BenchmarkPoint, type AgentMetrics, type ModelMetrics,
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { EquityChart } from "./components/EquityChart";
 import { BenchmarkChart } from "./components/BenchmarkChart";
 import { MetricsPanel } from "./components/MetricsPanel";
+import { ModelMetricsPanel } from "./components/ModelMetricsPanel";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
@@ -61,6 +62,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [benchmarks, setBenchmarks] = useState<BenchmarkPoint[]>([]);
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
+  const [modelMetrics, setModelMetrics] = useState<ModelMetrics[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
@@ -76,6 +78,11 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     load();
     const h = setInterval(load, 15000);
     return () => clearInterval(h);
+  }, []);
+
+  // Global, not per-agent — fetched once on mount.
+  useEffect(() => {
+    getModelMetrics().then(setModelMetrics).catch(onErr);
   }, []);
 
   useEffect(() => {
@@ -200,6 +207,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                 <EquityChart data={equity} baseline={100} />
                 <BenchmarkChart equity={equity} benchmarks={benchmarks} />
                 <MetricsPanel metrics={metrics} />
+                <h3 className="text-sm font-medium mt-4 mb-2">Hit-rate per modello</h3>
+                <ModelMetricsPanel models={modelMetrics} />
               </CardContent>
             </Card>
 
