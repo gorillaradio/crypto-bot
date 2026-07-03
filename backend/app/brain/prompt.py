@@ -36,6 +36,14 @@ def render_prompt(ctx: DecisionContext) -> tuple[str, str]:
     lines += ["", "Recent events:"]
     lines += [f"  - {e}" for e in ctx.recent_events] or ["  (none)"]
 
+    if ctx.observations:
+        lines += ["", "Recent crypto news (headlines; context only, not advice):"]
+        for o in ctx.observations:
+            when = o.published_at.strftime("%m-%d %H:%M")
+            title = o.title if len(o.title) <= 160 else o.title[:157] + "..."
+            tag = f"[{', '.join(o.symbols)}]" if o.symbols else "[market]"
+            lines.append(f"  - {when} {o.source}: {title} {tag}")
+
     mem = ctx.memory
     mem_lines = []
     for label, text in (("Coin theses", mem.coin_theses),
