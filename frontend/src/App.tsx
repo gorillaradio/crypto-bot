@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  getAgents, getEquity, getEvents, getPositions, getMemory,
+  getAgents, getEquity, getEvents, getPositions, getMemory, getMemoryJournal,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   getBenchmarks, getAgentMetrics, getModelMetrics,
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
-  type BenchmarkPoint, type AgentMetrics, type ModelMetrics,
+  type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry,
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import { ModelMetricsPanel } from "./components/ModelMetricsPanel";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
+import { MemoryJournal } from "./components/MemoryJournal";
 import { PromptPanel } from "./components/PromptPanel";
 import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
@@ -66,6 +67,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
+  const [journalEntries, setJournalEntries] = useState<MemoryEntry[]>([]);
   const [modal, setModal] = useState<"create" | "edit" | "delete" | "share" | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -92,6 +94,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   useEffect(() => {
     if (selId == null) return;
     setMemory(null);
+    setJournalEntries([]);
     const load = () => {
       getEquity(selId).then(setEquity).catch(onErr);
       getBenchmarks(selId).then(setBenchmarks).catch(onErr);
@@ -99,6 +102,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       getEvents(selId).then(setEvents).catch(onErr);
       getPositions(selId).then(setPositions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);
+      getMemoryJournal(selId).then(setJournalEntries).catch(onErr);
     };
     load();
     const h = setInterval(load, 15000);
@@ -231,6 +235,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <CardContent>
                 <h2 className="text-sm font-semibold text-muted-foreground mb-3">Memoria</h2>
                 {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
+                <MemoryJournal entries={journalEntries} />
               </CardContent>
             </Card>
 
