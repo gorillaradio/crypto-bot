@@ -13,6 +13,7 @@ from app.brain import journal
 from app.brain.memory import run_reflection_result, run_distillation_result, ClosedTrade
 from app.brain.providers import make_adapter
 from app.eval.benchmarks import compute_benchmark_equities
+from app.feeds.query import recent_observations_for
 
 
 def universe_size(agent) -> int:
@@ -35,9 +36,10 @@ async def build_agent_context(session, agent, market, symbols, *, wake_reason=No
         .order_by(Event.timestamp.desc()).limit(10).all())]
 
     memory = journal.compact_view(session, agent.id)
+    observations = recent_observations_for(session, [c.symbol for c in universe])
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                          holdings=holdings, universe=universe, recent_events=recent,
-                         memory=memory, wake_reason=wake_reason)
+                         memory=memory, observations=observations, wake_reason=wake_reason)
 
 
 async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:

@@ -640,3 +640,24 @@ async def test_distillation_failure_leaves_entries_and_records_failed(db_session
     assert len(active) == cap + 1                                             # nothing superseded on failure
     rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="distillation").one()
     assert rec.parse_status == "failed" and rec.parsed_output is None
+
+
+async def test_build_agent_context_includes_recent_observations(db_session):
+    import json
+    from app.db.models import Observation
+    agent = _llm_agent(db_session)
+    db_session.add_all([
+        Observation(source="CoinDesk", kind="news", title="Bitcoin ETF inflows", url="o/1",
+                    symbols_json=json.dumps(["BTC"]), dedup_hash="o/1",
+                    published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc)),
+        Observation(source="CoinDesk", kind="news", title="Ethereum upgrade", url="o/2",
+                    symbols_json=json.dumps(["ETH"]), dedup_hash="o/2",
+                    published_at=datetime(2026, 7, 3, 9, 0, tzinfo=timezone.utc)),
+    ])
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("110"), (Decimal("109"), Decimal("111")))
+    ctx = await build_agent_context(db_session, agent, market, ["BTCUSDT"])
+    titles = [o.title for o in ctx.observations]
+    assert "Bitcoin ETF inflows" in titles          # universe = BTC → included
+    assert "Ethereum upgrade" not in titles          # ETH not in this universe → excluded
