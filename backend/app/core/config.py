@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     fee_rate: Decimal = Decimal("0.001")
     heartbeat_seconds: int = 300
     decision_seconds: int = 3600
+    scoring_seconds: int = 900       # re-score matured decisions every 15 min
     universe_default: str = "TOP_100"
 
     # --- auth ---

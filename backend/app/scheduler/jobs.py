@@ -1,10 +1,12 @@
 import logging
+from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import settings
 from app.db.base import get_session
 from app.db.models import Agent
 from app.market.binance import BinanceClient
 from app.agents.runtime import run_heartbeat, run_decision_guarded, universe_size
+from app.eval.scoring_job import score_matured_decisions
 
 _scheduler: AsyncIOScheduler | None = None
 logger = logging.getLogger(__name__)
@@ -36,10 +38,22 @@ async def _decision_tick():
                 session.rollback()
 
 
+async def _scoring_tick():
+    market = BinanceClient()
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        try:
+            await score_matured_decisions(session, market, now)
+        except Exception as exc:
+            logger.error("scoring tick failed: %s", exc)
+            session.rollback()
+
+
 def start_scheduler() -> AsyncIOScheduler:
     global _scheduler
     _scheduler = AsyncIOScheduler()
     _scheduler.add_job(_heartbeat_tick, "interval", seconds=settings.heartbeat_seconds)
     _scheduler.add_job(_decision_tick, "interval", seconds=settings.decision_seconds)
+    _scheduler.add_job(_scoring_tick, "interval", seconds=settings.scoring_seconds)
     _scheduler.start()
     return _scheduler

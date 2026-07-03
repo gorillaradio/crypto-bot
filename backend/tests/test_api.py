@@ -346,6 +346,21 @@ def test_delete_agent_removes_decision_records(db_session):
     assert db_session.query(DecisionRecord).filter_by(agent_id=aid).count() == 0
 
 
+def test_delete_agent_removes_decision_scores(db_session):
+    from app.db.models import DecisionRecord, DecisionScore
+    client = _client(db_session)
+    aid = _mk(client, name="DoomedScore").json()["id"]
+    rec = DecisionRecord(agent_id=aid, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=1)
+    db_session.add(rec); db_session.commit()
+    db_session.add(DecisionScore(decision_record_id=rec.id, window="24h", n_actions=0, n_hits=0))
+    db_session.commit()
+    assert client.delete(f"/api/agents/{aid}").status_code == 204
+    assert db_session.query(DecisionScore).filter_by(decision_record_id=rec.id).count() == 0
+
+
 def test_get_benchmarks_returns_points_oldest_first(db_session):
     from app.db.models import BenchmarkSnapshot
     agent = Agent(name="Bm", duration_start=datetime.now(timezone.utc),
