@@ -78,3 +78,55 @@ def run_reflection_result(memory: MemoryView, closed: list[ClosedTrade],
         return ReflectionResult(entries, system, user, raw, "ok", int((perf_counter() - t0) * 1000))
     except Exception:                     # unparseable — nothing to append
         return ReflectionResult(MemoryUpdate(), system, user, raw, "failed", int((perf_counter() - t0) * 1000))
+
+
+_DISTILL_SYSTEM = """You compact one section of an autonomous paper-trading agent's long-term memory.
+You are given the current entries of the "{section}" section (oldest first). Merge and condense them
+into AT MOST {cap} one-line entries, preserving the most recent and most decision-relevant information
+and dropping redundancy. Never invent facts. Output ONLY a JSON object of this exact shape:
+{{"entries": ["<one short line>", ...]}}
+Output JSON only, no prose.
+
+The agent's operator instructions:
+{instructions}"""
+
+
+def build_distillation_prompt(section: str, entries: list[str], cap: int,
+                              instructions: str) -> tuple[str, str]:
+    system = _DISTILL_SYSTEM.format(section=section, cap=cap,
+                                    instructions=instructions or "(none provided)")
+    lines = [f"Current {section} entries (oldest first):"]
+    lines += [f"  - {e}" for e in entries] or ["  (none)"]
+    return system, "\n".join(lines)
+
+
+def parse_distillation(raw: str) -> list[str]:
+    data = json.loads(raw)
+    return [str(x) for x in data.get("entries", [])]
+
+
+@dataclass
+class DistillationResult:
+    entries: list[str]
+    system: str = ""
+    user: str = ""
+    raw: str | None = None
+    parse_status: str = "ok"      # "ok" | "failed"
+    latency_ms: int = 0
+
+
+def run_distillation_result(section: str, entries: list[str], cap: int,
+                            instructions: str, adapter) -> DistillationResult:
+    system, user = build_distillation_prompt(section, entries, cap, instructions)
+    t0 = perf_counter()
+    try:
+        raw = adapter.complete_json(system, user)
+    except Exception:                     # provider error — keep the originals, do not apply
+        return DistillationResult(entries, system, user, None, "failed", int((perf_counter() - t0) * 1000))
+    try:
+        compacted = parse_distillation(raw)
+        if not compacted:                 # never wipe a section to nothing
+            return DistillationResult(entries, system, user, raw, "failed", int((perf_counter() - t0) * 1000))
+        return DistillationResult(compacted[:cap], system, user, raw, "ok", int((perf_counter() - t0) * 1000))
+    except Exception:                     # unparseable — keep the originals
+        return DistillationResult(entries, system, user, raw, "failed", int((perf_counter() - t0) * 1000))
