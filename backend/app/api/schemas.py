@@ -99,6 +99,14 @@ class MemoryOut(BaseModel):
     strategy_notes: str
 
 
+class MemoryEntryOut(BaseModel):
+    section: str
+    content: str
+    cycle_id: str | None = None
+    active: bool
+    created_at: datetime
+
+
 class PromptPair(BaseModel):
     system: str
     user: str

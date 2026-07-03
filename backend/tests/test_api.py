@@ -450,3 +450,27 @@ def test_model_metrics_aggregates_hitrate_by_model(db_session):
     by_model = {m["model_name"]: m for m in body}
     assert Decimal(by_model["deepseek/x"]["hit_rate_24h"]) == Decimal("75")   # 3 hits / 4 actions
     assert Decimal(by_model["glm/y"]["hit_rate_24h"]) == Decimal("0")
+
+
+def test_get_memory_journal_returns_entries_newest_first(db_session):
+    from app.brain import journal
+    agent = Agent(name="Jn", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: bull", "ETH: flat"], cycle_id="c1")
+    db_session.commit()
+    journal.apply_distillation(db_session, agent.id, "coin_theses", ["BTC+ETH: merged"], cycle_id="c2")
+    db_session.commit()
+    client = _client(db_session)
+    resp = client.get(f"/api/agents/{agent.id}/memory/journal")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 3                                    # 2 superseded + 1 active
+    assert body[0]["content"] == "BTC+ETH: merged" and body[0]["active"] is True   # newest first
+    assert {e["active"] for e in body} == {True, False}
+
+
+def test_get_memory_journal_empty_for_unknown_agent(db_session):
+    client = _client(db_session)
+    resp = client.get("/api/agents/9999/memory/journal")
+    assert resp.status_code == 200 and resp.json() == []

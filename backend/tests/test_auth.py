@@ -133,3 +133,10 @@ def test_metrics_require_a_session(client, db_session):
     client.post("/api/auth/viewer", json={"token": "v5"})
     assert client.get("/api/agents/1/metrics").status_code == 200
     assert client.get("/api/metrics/by-model").status_code == 200
+
+
+def test_memory_journal_requires_a_session(client, db_session):
+    assert client.get("/api/agents/1/memory/journal").status_code == 401
+    db_session.add(ShareLink(token="v6")); db_session.commit()
+    client.post("/api/auth/viewer", json={"token": "v6"})
+    assert client.get("/api/agents/1/memory/journal").status_code == 200   # viewer can read

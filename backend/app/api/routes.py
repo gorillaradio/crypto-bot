@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Position, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, MemoryOut, ModelMetricsOut, PositionOut, PromptPreviewOut
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, PositionOut, PromptPreviewOut
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
 from app.eval.metrics import total_return_pct, max_drawdown_pct, sharpe, hit_rate
@@ -198,6 +198,17 @@ def get_memory(agent_id: int, session=Depends(session_dep), _: str = Depends(req
     view = compact_view(session, agent_id)
     return MemoryOut(coin_theses=view.coin_theses, trade_lessons=view.trade_lessons,
                      strategy_notes=view.strategy_notes)
+
+
+@router.get("/agents/{agent_id}/memory/journal", response_model=list[MemoryEntryOut])
+def get_memory_journal(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
+    return (
+        session.query(MemoryEntry)
+        .filter_by(agent_id=agent_id)
+        .order_by(MemoryEntry.created_at.desc(), MemoryEntry.id.desc())
+        .limit(100)
+        .all()
+    )
 
 
 @router.get("/agents/{agent_id}/events", response_model=list[EventOut])
