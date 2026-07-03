@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 
 
@@ -26,6 +27,14 @@ class MemoryView:
 
 
 @dataclass
+class ObservationView:
+    source: str
+    title: str
+    published_at: datetime
+    symbols: list[str]
+
+
+@dataclass
 class DecisionContext:
     instructions: str
     cash_usd: Decimal
@@ -35,9 +44,10 @@ class DecisionContext:
     recent_events: list[str]
     memory: MemoryView
     wake_reason: str | None = None
+    observations: list["ObservationView"] = field(default_factory=list)
 
 
-def build_context(*, instructions, cash_usd, holdings, universe, recent_events, memory=None, wake_reason=None) -> DecisionContext:
+def build_context(*, instructions, cash_usd, holdings, universe, recent_events, memory=None, observations=None, wake_reason=None) -> DecisionContext:
     positions: list[PositionView] = []
     equity = cash_usd
     for symbol, quantity, avg_price, last_price in holdings:
@@ -47,5 +57,5 @@ def build_context(*, instructions, cash_usd, holdings, universe, recent_events, 
     return DecisionContext(
         instructions=instructions, cash_usd=cash_usd, equity_usd=equity,
         positions=positions, universe=universe, recent_events=recent_events,
-        memory=memory or MemoryView(), wake_reason=wake_reason,
+        memory=memory or MemoryView(), observations=observations or [], wake_reason=wake_reason,
     )
