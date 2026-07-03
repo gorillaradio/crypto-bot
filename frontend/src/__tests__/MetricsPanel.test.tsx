@@ -15,7 +15,7 @@ describe("MetricsPanel", () => {
     );
     expect(screen.getByTestId("metrics-panel")).toBeInTheDocument();
     expect(screen.getByText(/Max drawdown/i)).toBeInTheDocument();
-    expect(screen.getByText(/75%/)).toBeInTheDocument();
+    expect(screen.getByText(/75\.0%/)).toBeInTheDocument();
   });
 
   it("renders an empty state when metrics are null", () => {

@@ -1,6 +1,6 @@
 import type { AgentMetrics } from "../api";
 
-const pct = (v: string | null) => (v == null ? "—" : `${Number(v)}%`);
+const pct = (v: string | null) => (v == null ? "—" : `${Number(v).toFixed(1)}%`);
 const num = (v: string) => Number(v).toFixed(2);
 
 function Stat({ label, value }: { label: string; value: string }) {
