@@ -199,7 +199,7 @@ operativa durante tutto il percorso (nessuna fase è un big-bang rewrite).
 | 2 — Evaluation harness | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-evaluation-harness](2026-07-03-evaluation-harness.md) | 15 task (13 piano + 2 finaliz.), 18 commit, 173 backend + 39 frontend verdi, final review opus ready-to-merge |
 | 3 — Memoria a journal | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-memoria-journal](2026-07-03-memoria-journal.md) | 10 task, 10 commit, 188 backend + 41 frontend verdi, 2 migration (create+backfill, drop), final review opus ready-to-merge |
 | 4 — Ingestion news | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-ingestion-news](2026-07-03-ingestion-news.md) | 9 task, 9 commit, crypto-native RSS (CoinDesk/Cointelegraph/CryptoSlate), Observation table + poll tick + sezione prompt, feedparser dep; 213 backend + 41 frontend verdi; final review opus ready-to-merge |
-| 5 — Trigger engine | 📝 piano scritto | [2026-07-03-trigger-engine](2026-07-03-trigger-engine.md) | 9 task (8 impl + finaliz.); news+movimento+budget su `run_heartbeat` |
+| 5 — Trigger engine | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-trigger-engine](2026-07-03-trigger-engine.md) | 8 task + fix watermark loss-free + finaliz.; 10 commit; news+movimento(klines)+budget su `run_heartbeat`; 239 backend + 41 frontend verdi; single Alembic head `940cbbd9c670`; final OPUS review ready-to-merge (1 Important fixato) |
 | 6 — Brain a due stadi | ⬜ | — | dipende da 4, 5 |
 
 Stati: ⬜ da pianificare → 📝 piano scritto → 🔨 in esecuzione → ✅ mergiata.
