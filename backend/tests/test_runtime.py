@@ -684,3 +684,103 @@ async def test_run_decision_guarded_forwards_trigger(db_session):
     assert ran is True
     rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id).one()
     assert rec.trigger == "news"
+
+
+class FakeMarketMove:
+    """Heartbeat market with klines: price flat for equity, klines drive the 1h move."""
+    def __init__(self, price, closes, symbols=None):
+        self._price, self._closes, self._symbols = price, closes, symbols or ["BTCUSDT"]
+    async def get_price(self, symbol): return self._price
+    async def get_top_symbols(self, quote, n): return self._symbols
+    async def get_universe_snapshot(self, symbols):
+        return [CoinSnapshot(s, self._price, Decimal("0")) for s in symbols]
+    async def get_klines(self, symbol, interval, limit):
+        return list(self._closes)                       # [old, ..., now]
+
+
+def _move_agent(db_session):
+    """Agent with thresholds disabled (no breach) holding BTCUSDT."""
+    a = Agent(name="M", duration_start=datetime.now(timezone.utc),
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+    db_session.add(a); db_session.commit()
+    db_session.add(Position(agent_id=a.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    return a
+
+
+async def test_movement_fresh_triggers_and_disarms(db_session):
+    agent = _move_agent(db_session)
+    market = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("107")])  # +7%
+    calls = []
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None, trigger=None):
+        calls.append((wake_reason, trigger)); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert len(calls) == 1 and calls[0][1] == "movement" and "BTCUSDT" in calls[0][0]
+    pos = db_session.query(Position).filter_by(agent_id=agent.id).one()
+    assert pos.move_armed is False
+    assert db_session.query(Trade).filter_by(agent_id=agent.id).count() == 0
+
+
+async def test_movement_within_band_does_not_trigger(db_session):
+    agent = _move_agent(db_session)
+    market = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("103")])  # +3% < 5%
+    calls = []
+    async def fake_trigger(*a, **k): calls.append(1); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert calls == []
+
+
+async def test_movement_disarmed_does_not_retrigger_then_rearms(db_session):
+    agent = _move_agent(db_session)
+    pos = db_session.query(Position).filter_by(agent_id=agent.id).one()
+    pos.move_armed = False; db_session.commit()
+    spiking = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("107")])  # still +7%
+    async def fake_trigger(*a, **k): return True
+    await run_heartbeat(db_session, agent, spiking, trigger_decision=fake_trigger)
+    db_session.refresh(pos); assert pos.move_armed is False            # stays disarmed while spiking
+    calm = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("101")])     # +1%
+    await run_heartbeat(db_session, agent, calm, trigger_decision=fake_trigger)
+    db_session.refresh(pos); assert pos.move_armed is True             # re-armed when back in band
+
+
+async def test_breach_takes_priority_over_movement(db_session):
+    agent = _armed_agent(db_session)                                   # stop 0.10 / take 0.20
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    market = FakeMarketMove(price=Decimal("85"), closes=[Decimal("100"), Decimal("85")])  # -15%: breach AND move
+    calls = []
+    async def fake_trigger(session, agent, market, symbols, *, wake_reason=None, trigger=None):
+        calls.append((wake_reason, trigger)); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert len(calls) == 1 and calls[0][1] is None and "stop" in calls[0][0]   # breach path (no trigger kwarg)
+    pos = db_session.query(Position).filter_by(agent_id=agent.id).one()
+    assert pos.breach_armed is False and pos.move_armed is False        # both disarmed by the one review
+
+
+async def test_movement_suppressed_when_budget_exhausted(db_session):
+    from app.db.models import DecisionRecord
+    agent = _move_agent(db_session)
+    for _ in range(2):                                                  # 2 recent movement wakes = budget
+        r = DecisionRecord(agent_id=agent.id, cycle_id="c", kind="decision", trigger="movement",
+                           system_prompt="s", user_prompt="u", raw_response="r", parsed_output="{}",
+                           parse_status="ok", model_provider="openrouter", model_name="m", latency_ms=1)
+        db_session.add(r)
+    db_session.commit()
+    market = FakeMarketMove(price=Decimal("100"), closes=[Decimal("100"), Decimal("108")])  # +8%
+    calls = []
+    async def fake_trigger(*a, **k): calls.append(1); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert calls == []                                                  # deferred
+    pos = db_session.query(Position).filter_by(agent_id=agent.id).one()
+    assert pos.move_armed is True                                       # NOT disarmed → retries next beat
+
+
+async def test_movement_klines_error_isolated(db_session):
+    """A market without get_klines (or one that raises) must not break the beat; movement skipped."""
+    agent = _move_agent(db_session)
+    market = FakeMarketHB(price=Decimal("100"))                         # has no get_klines
+    calls = []
+    async def fake_trigger(*a, **k): calls.append(1); return True
+    await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
+    assert calls == []
+    assert db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).count() == 1  # beat completed

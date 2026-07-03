@@ -14,6 +14,7 @@ from app.brain.memory import run_reflection_result, run_distillation_result, Clo
 from app.brain.providers import make_adapter
 from app.eval.benchmarks import compute_benchmark_equities
 from app.feeds.query import recent_observations_for
+from app.agents.triggers import movement_change, count_recent_event_wakes
 
 
 def universe_size(agent) -> int:
@@ -42,43 +43,81 @@ async def build_agent_context(session, agent, market, symbols, *, wake_reason=No
                          memory=memory, observations=observations, wake_reason=wake_reason)
 
 
+async def _position_move(market, symbol):
+    """Signed ~window-hour price move for a symbol via klines. None if unavailable
+    (missing method / network error / too few candles) — movement is discretionary
+    and must never break the beat."""
+    try:
+        closes = await market.get_klines(symbol, "1h", settings.movement_window_hours + 1)
+    except Exception:
+        return None
+    if not closes or len(closes) < 2:
+        return None
+    return movement_change(closes[0], closes[-1])
+
+
 async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:
     if trigger_decision is None:
         trigger_decision = run_decision_guarded
     positions_value = Decimal("0")
     breached_positions = []
-    fresh = None                                  # (symbol, side, change_pct) del primo breach fresco
+    spiked_positions = []
+    fresh_breach = None                           # (symbol, side, change_pct)
+    fresh_move = None                             # (symbol, change_frac)
     for pos in list(agent.positions):
         last = await market.get_price(pos.symbol)
         positions_value += pos.quantity * last
         side = breached(pos.avg_price, last, agent.stop_loss, agent.take_profit)
         if side is None:
-            if not pos.breach_armed:              # rientrata in banda → ri-arma
+            if not pos.breach_armed:
                 pos.breach_armed = True
         else:
             breached_positions.append(pos)
-            if pos.breach_armed and fresh is None:
+            if pos.breach_armed and fresh_breach is None:
                 change_pct = (last - pos.avg_price) / pos.avg_price * Decimal("100")
-                fresh = (pos.symbol, side, change_pct)
+                fresh_breach = (pos.symbol, side, change_pct)
+        change = await _position_move(market, pos.symbol)
+        if change is None:
+            pass                                  # klines unavailable this beat → don't touch arm state
+        elif abs(change) < settings.movement_threshold:
+            if not pos.move_armed:
+                pos.move_armed = True
+        else:
+            spiked_positions.append(pos)
+            if pos.move_armed and fresh_move is None:
+                fresh_move = (pos.symbol, change)
     equity = agent.cash_usd + positions_value
     session.add(EquitySnapshot(agent_id=agent.id, equity_usd=equity))
     session.commit()
 
     await record_benchmark_snapshot(session, agent, market)
 
-    if fresh is None:
+    if fresh_breach is None and fresh_move is None:
         return
-    symbol, side, change_pct = fresh
-    threshold = agent.stop_loss if side == "stop" else agent.take_profit
-    label = "stop" if side == "stop" else "take-profit"
-    wake_reason = (f"Risveglio fuori ciclo: {symbol} a {change_pct:+.2f}%, oltre la tua "
-                   f"soglia di {label} {threshold * Decimal('100'):.2f}%. Rivaluta.")
     n = universe_size(agent)
     symbols = await market.get_top_symbols("USDT", n)
-    triggered = await trigger_decision(session, agent, market, symbols, wake_reason=wake_reason)
+
+    if fresh_breach is not None:
+        symbol, side, change_pct = fresh_breach
+        threshold = agent.stop_loss if side == "stop" else agent.take_profit
+        label = "stop" if side == "stop" else "take-profit"
+        wake_reason = (f"Risveglio fuori ciclo: {symbol} a {change_pct:+.2f}%, oltre la tua "
+                       f"soglia di {label} {threshold * Decimal('100'):.2f}%. Rivaluta.")
+        triggered = await trigger_decision(session, agent, market, symbols, wake_reason=wake_reason)
+    else:
+        if count_recent_event_wakes(session, agent.id) >= settings.wake_budget_per_hour:
+            return                                # budget exhausted → defer (arm state untouched)
+        symbol, change = fresh_move
+        wake_reason = (f"Risveglio fuori ciclo: {symbol} si è mossa del "
+                       f"{change * Decimal('100'):+.2f}% nell'ultima ora. Rivaluta.")
+        triggered = await trigger_decision(session, agent, market, symbols,
+                                           wake_reason=wake_reason, trigger="movement")
+
     if triggered:
-        for p in breached_positions:              # l'LLM ha visto l'intero portafoglio: disarma tutte
+        for p in breached_positions:
             p.breach_armed = False
+        for p in spiked_positions:
+            p.move_armed = False
         session.commit()
 
 
