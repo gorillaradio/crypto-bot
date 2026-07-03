@@ -158,3 +158,28 @@ def test_decision_score_unique_per_record_and_window(db_session):
     db_session.add(DecisionScore(decision_record_id=rec.id, window="24h", n_actions=2, n_hits=0))
     with pytest.raises(IntegrityError):
         db_session.commit()
+
+
+def test_memory_entry_persists_with_defaults(db_session):
+    from app.db.models import MemoryEntry
+    agent = Agent(name="J", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    row = MemoryEntry(agent_id=agent.id, section="coin_theses", content="BTC: bull")
+    db_session.add(row); db_session.commit(); db_session.refresh(row)
+    assert row.id is not None and row.created_at is not None
+    assert row.active is True                       # default active
+    assert row.cycle_id is None                     # nullable
+
+
+def test_memory_entry_allows_many_rows_per_section(db_session):
+    from app.db.models import MemoryEntry
+    agent = Agent(name="J2", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    db_session.add_all([
+        MemoryEntry(agent_id=agent.id, section="coin_theses", content="BTC: bull", cycle_id="c1"),
+        MemoryEntry(agent_id=agent.id, section="coin_theses", content="ETH: flat", cycle_id="c1"),
+    ])
+    db_session.commit()                              # no unique constraint → both persist
+    assert db_session.query(MemoryEntry).filter_by(agent_id=agent.id, section="coin_theses").count() == 2

@@ -136,3 +136,14 @@ class DecisionScore(Base):
     avg_return_pct: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     scored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     __table_args__ = (UniqueConstraint("decision_record_id", "window", name="uq_decision_score_window"),)
+
+
+class MemoryEntry(Base):
+    __tablename__ = "memory_entries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), index=True)
+    section: Mapped[str] = mapped_column(String(40))
+    content: Mapped[str] = mapped_column(String)
+    cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
