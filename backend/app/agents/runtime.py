@@ -14,7 +14,7 @@ from app.brain.memory import run_reflection_result, run_distillation_result, Clo
 from app.brain.providers import make_adapter
 from app.eval.benchmarks import compute_benchmark_equities
 from app.feeds.query import recent_observations_for
-from app.agents.triggers import movement_change, count_recent_event_wakes
+from app.agents.triggers import movement_change, count_recent_event_wakes, advance_news_watermark
 
 
 def universe_size(agent) -> int:
@@ -217,6 +217,9 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                      parse_status=result.parse_status, latency_ms=result.latency_ms)
     session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
                       message=f"{kind_label}: {note} — {actions} operazioni, {skipped} saltate, {errors} errori"))
+    session.commit()
+
+    advance_news_watermark(session, agent)
     session.commit()
 
     if closed_trades:

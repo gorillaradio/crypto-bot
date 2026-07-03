@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
+from sqlalchemy import func
 from app.db.models import DecisionRecord, Observation
 from app.feeds.query import _base
 
@@ -51,3 +52,10 @@ def fresh_news_for(session, agent):
         if syms and (set(syms) & held):
             return r
     return None
+
+
+def advance_news_watermark(session, agent) -> None:
+    """Mark every Observation up to now as seen by this agent (called after a decision)."""
+    latest = session.query(func.max(Observation.id)).scalar()
+    if latest is not None:
+        agent.last_seen_observation_id = latest

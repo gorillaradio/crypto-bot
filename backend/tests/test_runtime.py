@@ -784,3 +784,33 @@ async def test_movement_klines_error_isolated(db_session):
     await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
     assert calls == []
     assert db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).count() == 1  # beat completed
+
+
+async def test_decision_advances_news_watermark(db_session):
+    import json as _json
+    from app.db.models import Observation
+    agent = _llm_agent(db_session)
+    o = Observation(source="CoinDesk", kind="news", title="btc", url="u",
+                    symbols_json=_json.dumps(["BTC"]), dedup_hash="u",
+                    published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc))
+    db_session.add(o); db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(Decision(actions=[], note="h")))
+    assert agent.last_seen_observation_id == o.id
+
+
+async def test_failed_decision_does_not_advance_watermark(db_session):
+    import json as _json
+    from app.db.models import Observation
+    agent = _llm_agent(db_session)
+    o = Observation(source="CoinDesk", kind="news", title="btc", url="u",
+                    symbols_json=_json.dumps(["BTC"]), dedup_hash="u",
+                    published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc))
+    db_session.add(o); db_session.commit()
+
+    class Broken:
+        async def get_universe_snapshot(self, symbols): raise RuntimeError("down")
+    await run_decision(db_session, agent, Broken(), ["BTCUSDT"])
+    assert agent.last_seen_observation_id is None            # error path returned before advancing

@@ -129,3 +129,20 @@ def test_fresh_news_none_when_no_holdings(db_session):
     agent = _agent(db_session)
     _obs(db_session, "btc news", ["BTC"], 9)
     assert fresh_news_for(db_session, agent) is None
+
+
+from app.agents.triggers import advance_news_watermark
+
+
+def test_advance_watermark_sets_to_max(db_session):
+    agent = _agent(db_session)
+    _obs(db_session, "a", ["BTC"], 8)
+    newest = _obs(db_session, "b", ["ETH"], 9)
+    advance_news_watermark(db_session, agent)
+    assert agent.last_seen_observation_id == newest.id
+
+
+def test_advance_watermark_noop_when_empty(db_session):
+    agent = _agent(db_session)
+    advance_news_watermark(db_session, agent)
+    assert agent.last_seen_observation_id is None
