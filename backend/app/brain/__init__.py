@@ -1,15 +1,15 @@
 from time import perf_counter
 from app.brain.schema import Decision, DecisionResult
 from app.brain.context import DecisionContext
-from app.brain.prompt import render_prompt, retry_user_suffix
+from app.brain.prompt import render_prompt, render_trader_prompt, retry_user_suffix
 
 
 def _elapsed_ms(t0: float) -> int:
     return int((perf_counter() - t0) * 1000)
 
 
-def evaluate(ctx: DecisionContext, adapter) -> DecisionResult:
-    system, user = render_prompt(ctx)
+def _evaluate_with(ctx: DecisionContext, adapter, render) -> DecisionResult:
+    system, user = render(ctx)
     t0 = perf_counter()
     try:
         raw = adapter.complete_json(system, user)
@@ -29,6 +29,14 @@ def evaluate(ctx: DecisionContext, adapter) -> DecisionResult:
             return DecisionResult(
                 Decision(actions=[], note=f"decision parse failed: {second_err}"),
                 system, user, raw2 if raw2 is not None else raw, "failed", _elapsed_ms(t0))
+
+
+def evaluate(ctx: DecisionContext, adapter) -> DecisionResult:
+    return _evaluate_with(ctx, adapter, render_prompt)
+
+
+def evaluate_trader(ctx: DecisionContext, adapter) -> DecisionResult:
+    return _evaluate_with(ctx, adapter, render_trader_prompt)
 
 
 def decide(ctx: DecisionContext, adapter) -> Decision:
