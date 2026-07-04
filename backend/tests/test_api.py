@@ -474,3 +474,17 @@ def test_get_memory_journal_empty_for_unknown_agent(db_session):
     client = _client(db_session)
     resp = client.get("/api/agents/9999/memory/journal")
     assert resp.status_code == 200 and resp.json() == []
+
+
+def test_create_agent_defaults_brain_version_v1(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="V1def")
+    assert resp.status_code == 201
+    assert db_session.query(Agent).filter_by(name="V1def").one().brain_version == "v1"
+
+
+def test_create_agent_accepts_brain_version_v2(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="V2acc", brain_version="v2")
+    assert resp.status_code == 201
+    assert db_session.query(Agent).filter_by(name="V2acc").one().brain_version == "v2"
