@@ -58,6 +58,13 @@ export type Decision = {
   latency_ms: number;
   created_at: string;
 };
+export type Observation = {
+  source: string;
+  title: string;
+  url: string | null;
+  published_at: string;
+  symbols: string[];
+};
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
@@ -77,6 +84,7 @@ export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/mem
 export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);
 export const getPrompt = (id: number) => get<PromptPreview>(`/api/agents/${id}/prompt`);
 export const getDecisions = (id: number) => get<Decision[]>(`/api/agents/${id}/decisions`);
+export const getObservations = () => get<Observation[]>("/api/observations");
 
 export type AgentCreateInput = {
   name: string;

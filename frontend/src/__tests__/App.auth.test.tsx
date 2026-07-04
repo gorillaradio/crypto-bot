@@ -13,6 +13,7 @@ vi.mock("../api", () => ({
   getEvents: vi.fn(() => Promise.resolve([])),
   getPositions: vi.fn(() => Promise.resolve([])),
   getDecisions: vi.fn(() => Promise.resolve([])),
+  getObservations: vi.fn(() => Promise.resolve([])),
   getMemory: vi.fn(() => Promise.resolve(null)),
   getMemoryJournal: vi.fn(() => Promise.resolve([])),
   getPrompt: vi.fn(() => Promise.resolve(null)),

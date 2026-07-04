@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getAgents, getEquity, getEvents, getPositions, getMemory, getMemoryJournal, getDecisions,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
-  getBenchmarks, getAgentMetrics, getModelMetrics,
+  getBenchmarks, getAgentMetrics, getModelMetrics, getObservations,
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
   type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry, type Decision,
+  type Observation,
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +19,7 @@ import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
 import { MemoryJournal } from "./components/MemoryJournal";
 import { DecisionsPanel } from "./components/DecisionsPanel";
+import { ObservationsFeed } from "./components/ObservationsFeed";
 import { PromptPanel } from "./components/PromptPanel";
 import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
@@ -69,6 +71,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [observations, setObservations] = useState<Observation[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
   const [journalEntries, setJournalEntries] = useState<MemoryEntry[]>([]);
   const [modal, setModal] = useState<"create" | "edit" | "delete" | "share" | null>(null);
@@ -107,6 +110,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       getDecisions(selId).then(setDecisions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);
       getMemoryJournal(selId).then(setJournalEntries).catch(onErr);
+      getObservations().then(setObservations).catch(onErr);
     };
     load();
     const h = setInterval(load, 15000);
@@ -248,6 +252,13 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <CardContent>
                 <h2 className="text-sm font-semibold text-muted-foreground mb-3">Decisioni</h2>
                 <DecisionsPanel decisions={decisions} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Osservazioni (news)</h2>
+                <ObservationsFeed observations={observations} />
               </CardContent>
             </Card>
 
