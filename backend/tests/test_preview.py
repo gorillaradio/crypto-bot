@@ -33,8 +33,9 @@ async def test_preview_returns_three_prompts_with_real_data(db_session):
     out = await render_agent_prompts_preview(db_session, agent, market)
     assert set(out) == {"decision", "reflection", "retry"}
     assert "compra basso vendi alto" in out["decision"]["system"]     # istruzioni operatore
-    assert "BTCUSDT" in out["decision"]["user"]                        # universo/posizione
+    assert "BTCUSDT" in out["decision"]["user"]                        # posizione aperta
     assert "cut losers" in out["decision"]["user"]                     # memoria
+    assert "Market brief" in out["decision"]["user"]                   # prompt v2 (trader), non più tabella universo v1
     assert out["retry"]["user"].startswith(out["decision"]["user"])    # retry = decision user + suffisso
     assert "corrected JSON" in out["retry"]["user"]
     assert "BTCUSDT" in out["reflection"]["user"]                      # posizione come trade ipotetico

@@ -47,9 +47,16 @@ async def build_agent_context(session, agent, market, symbols, *, wake_reason=No
 
 
 async def build_trader_context(session, agent, market, symbols, *, wake_reason=None):
-    """v2 context: brief filtrato + posizioni live + memoria + eventi + wake_reason. NON scarica lo
-    snapshot universo (l'analyst ha già sintetizzato il mercato una volta, condiviso). Il brief viene
-    riusato (o bootstrap se non esiste ancora)."""
+    """v2 context: brief (bootstrap se assente) + posizioni live + memoria + eventi + wake_reason.
+    NON scarica lo snapshot universo (l'analyst ha già sintetizzato il mercato una volta, condiviso)."""
+    brief_row = await get_or_bootstrap_brief(session, market)
+    return await assemble_trader_context(session, agent, market, symbols, brief_row,
+                                         wake_reason=wake_reason)
+
+
+async def assemble_trader_context(session, agent, market, symbols, brief_row, *, wake_reason=None):
+    """Assembla il DecisionContext del trader da un brief_row GIÀ risolto (nessun bootstrap qui).
+    Condiviso dal ciclo di decisione (brief con bootstrap) e dal monitor prompt (solo latest, no LLM)."""
     holdings = []
     for pos in agent.positions:
         last = await market.get_price(pos.symbol)
@@ -58,7 +65,6 @@ async def build_trader_context(session, agent, market, symbols, *, wake_reason=N
         session.query(Event).filter_by(agent_id=agent.id)
         .order_by(Event.timestamp.desc()).limit(10).all())]
     memory = journal.compact_view(session, agent.id)
-    brief_row = await get_or_bootstrap_brief(session, market)
     brief = filter_brief_for(brief_row, symbols) if brief_row is not None else None
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                          holdings=holdings, universe=[], recent_events=recent,
