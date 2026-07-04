@@ -5,7 +5,7 @@ import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
 vi.mock("../api", () => ({ deleteAgent: vi.fn() }));
 import { deleteAgent } from "../api";
 
-const agent = { id: 7, name: "Doomed", status: "running", instructions: "",
+const agent = { id: 7, name: "Doomed", status: "running", brain_version: "v1", instructions: "",
   cash_usd: "100", equity: "100", return_pct: "0", duration_start: "", duration_end: "" };
 
 beforeEach(() => vi.mocked(deleteAgent).mockReset());

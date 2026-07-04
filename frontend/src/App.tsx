@@ -21,6 +21,7 @@ import { PromptPanel } from "./components/PromptPanel";
 import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
 import { AgentSidebar } from "./components/AgentSidebar";
+import { BrainBadge } from "./components/BrainBadge";
 import { InstructionsBlock } from "./components/InstructionsBlock";
 import { Login } from "./components/Login";
 import { ShareLinksModal } from "./components/ShareLinksModal";
@@ -181,6 +182,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             <section className="pb-2">
               <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-2xl font-semibold leading-tight">{sel.name}</h1>
+                <BrainBadge version={sel.brain_version} />
                 {isAdmin && (
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => setModal("edit")}>modifica</Button>
