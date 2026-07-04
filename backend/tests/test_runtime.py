@@ -1,8 +1,9 @@
+import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, MemoryEntry,
                            DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
-from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, build_agent_context, universe_size
+from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, universe_size
 from app.brain.context import CoinSnapshot
 from app.brain.memory import ReflectionResult
 from app.brain.schema import Decision, Action, DecisionResult
@@ -36,6 +37,17 @@ class FakeMarketHB:
     async def get_top_symbols(self, quote, n): return self._symbols
     async def get_universe_snapshot(self, symbols):
         return [CoinSnapshot(s, self._price, Decimal("0")) for s in symbols]
+
+
+@pytest.fixture(autouse=True)
+def _stub_brief_bootstrap(monkeypatch):
+    """v2-only decision path: build_trader_context resolves a brief via get_or_bootstrap_brief,
+    which cold-starts the analyst (needs get_top_symbols + a live adapter) when the fresh test DB
+    has no brief. These decision-execution tests fake the trader decision and don't exercise the
+    brief, so stub the resolver to None (the trader renders brief-less)."""
+    from app.agents import runtime as _runtime
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(_runtime, "get_or_bootstrap_brief", AsyncMock(return_value=None))
 
 
 def _agent(session, cash="100"):
@@ -195,12 +207,15 @@ async def test_llm_all_in_buy_clamps_for_fee_and_executes(db_session):
 
 
 async def test_llm_data_gathering_error_writes_event_no_trade(db_session):
-    """If get_universe_snapshot raises, run_decision must not raise, must write a decision
-    event recording the error, and must create zero Trade rows."""
+    """If a market fetch raises while building the trader context, run_decision must not raise,
+    must write a decision event recording the error, and must create zero Trade rows."""
     agent = _llm_agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
 
     class FakeMarketLLMBroken:
-        async def get_universe_snapshot(self, symbols):
+        async def get_price(self, symbol):
             raise RuntimeError("network timeout")
 
     market = FakeMarketLLMBroken()
@@ -454,23 +469,6 @@ async def test_decision_record_shares_cycle_id_with_events(db_session):
     assert rec.cycle_id == ev.cycle_id and rec.cycle_id is not None
 
 
-async def test_build_agent_context_assembles_from_live_data(db_session):
-    agent = _llm_agent(db_session)
-    agent.instructions = "compra basso vendi alto"
-    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
-                            quantity=Decimal("2"), avg_price=Decimal("100")))
-    journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: bull"])
-    db_session.commit()
-    snap = [CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))]
-    market = FakeMarketLLM(snap, Decimal("110"), (Decimal("109"), Decimal("111")))
-    ctx = await build_agent_context(db_session, agent, market, ["BTCUSDT"], wake_reason="w")
-    assert ctx.instructions == "compra basso vendi alto"
-    assert ctx.wake_reason == "w"
-    assert [c.symbol for c in ctx.universe] == ["BTCUSDT"]
-    assert any(p.symbol == "BTCUSDT" and p.last_price == Decimal("110") for p in ctx.positions)
-    assert ctx.memory.coin_theses == "BTC: bull"
-
-
 def test_universe_size_maps_universe_field():
     class A: universe = "TOP_100"
     class B: universe = "TOP_50"
@@ -640,27 +638,6 @@ async def test_distillation_failure_leaves_entries_and_records_failed(db_session
     assert len(active) == cap + 1                                             # nothing superseded on failure
     rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="distillation").one()
     assert rec.parse_status == "failed" and rec.parsed_output is None
-
-
-async def test_build_agent_context_includes_recent_observations(db_session):
-    import json
-    from app.db.models import Observation
-    agent = _llm_agent(db_session)
-    db_session.add_all([
-        Observation(source="CoinDesk", kind="news", title="Bitcoin ETF inflows", url="o/1",
-                    symbols_json=json.dumps(["BTC"]), dedup_hash="o/1",
-                    published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc)),
-        Observation(source="CoinDesk", kind="news", title="Ethereum upgrade", url="o/2",
-                    symbols_json=json.dumps(["ETH"]), dedup_hash="o/2",
-                    published_at=datetime(2026, 7, 3, 9, 0, tzinfo=timezone.utc)),
-    ])
-    db_session.commit()
-    snap = [CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))]
-    market = FakeMarketLLM(snap, Decimal("110"), (Decimal("109"), Decimal("111")))
-    ctx = await build_agent_context(db_session, agent, market, ["BTCUSDT"])
-    titles = [o.title for o in ctx.observations]
-    assert "Bitcoin ETF inflows" in titles          # universe = BTC → included
-    assert "Ethereum upgrade" not in titles          # ETH not in this universe → excluded
 
 
 async def test_run_decision_explicit_trigger_wins(db_session):

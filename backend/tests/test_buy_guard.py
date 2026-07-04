@@ -5,24 +5,18 @@ from app.db.models import Agent, DecisionRecord
 from app.brain.schema import Decision, Action, DecisionResult
 from app.brain.context import build_context
 from app.agents import runtime
-from app.agents.runtime import _select_brain, run_decision
+from app.agents.runtime import run_decision
 
 pytestmark = pytest.mark.asyncio
 
 
-def _agent(session, brain_version="v1"):
-    a = Agent(name="T", brain_version=brain_version, cash_usd=Decimal("1000"),
+def _agent(session):
+    a = Agent(name="T", cash_usd=Decimal("1000"),
               model_name="deepseek/deepseek-v4-flash",
               duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1))
     session.add(a); session.commit()
     return a
-
-
-async def test_select_brain_by_version(db_session):
-    from app.brain import evaluate, evaluate_trader
-    assert _select_brain(_agent(db_session, "v1")) is evaluate
-    assert _select_brain(_agent(db_session, "v2")) is evaluate_trader
 
 
 class _MarketPx:
@@ -32,7 +26,7 @@ class _MarketPx:
 
 async def test_guard_uses_symbols_when_universe_empty(db_session, monkeypatch):
     """v2 ctx has an empty universe; the BUY guard must accept in-symbols and reject out-of-symbols."""
-    agent = _agent(db_session, "v2")
+    agent = _agent(db_session)
 
     async def _fake_ctx(session, ag, market, symbols, *, wake_reason=None):
         return build_context(instructions="", cash_usd=ag.cash_usd, holdings=[], universe=[],
