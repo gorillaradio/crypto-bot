@@ -61,3 +61,18 @@ def test_build_context_defaults_observations_empty():
     ctx = build_context(instructions="x", cash_usd=Decimal("10"),
                         holdings=[], universe=[], recent_events=[])
     assert ctx.observations == []
+
+
+def test_build_context_accepts_brief():
+    from app.brain.context import build_context, MarketBriefView, HighlightView
+    brief = MarketBriefView(regime="risk-on",
+                            highlights=[HighlightView("BTCUSDT", "$60000", "bullish", "etf")])
+    ctx = build_context(instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[],
+                        recent_events=[], brief=brief)
+    assert ctx.brief.regime == "risk-on" and ctx.brief.highlights[0].symbol == "BTCUSDT"
+
+
+def test_build_context_brief_defaults_none():
+    ctx = build_context(instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[],
+                        recent_events=[])
+    assert ctx.brief is None
