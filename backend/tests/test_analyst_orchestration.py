@@ -50,3 +50,33 @@ async def test_get_or_bootstrap_runs_cycle_when_empty(db_session):
         return await run_analyst_cycle(session, market, run=_fake_run(), adapter=object())
     row = await get_or_bootstrap_brief(db_session, _Market(), run_cycle=_cycle)
     assert row is not None and calls["n"] == 1
+
+
+from datetime import datetime, timezone, timedelta
+from app.db.models import Agent, Position
+from app.agents.runtime import build_trader_context, run_analyst_cycle
+
+
+def _agent(session):
+    a = Agent(name="T", brain_version="v2", cash_usd=Decimal("100"),
+              duration_start=datetime.now(timezone.utc),
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1))
+    session.add(a); session.commit()
+    return a
+
+
+class _MarketPx(_Market):
+    async def get_price(self, symbol): return Decimal("120")
+
+
+async def test_trader_context_has_filtered_brief_no_universe(db_session):
+    await run_analyst_cycle(db_session, _Market(), run=_fake_run(), adapter=object())  # BTCUSDT highlight
+    agent = _agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    ctx = await build_trader_context(db_session, agent, _MarketPx(), ["BTCUSDT", "ETHUSDT"])
+    assert ctx.universe == []                                  # no per-agent universe snapshot
+    assert ctx.brief is not None and ctx.brief.regime == "risk-on"
+    assert [h.symbol for h in ctx.brief.highlights] == ["BTCUSDT"]
+    assert ctx.positions[0].last_price == Decimal("120")      # live-priced holding
