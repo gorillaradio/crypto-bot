@@ -7,7 +7,9 @@ from app.core.config import settings
 from app.db.models import EquitySnapshot, Event, DecisionRecord, BenchmarkBasis, BenchmarkSnapshot
 from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
-from app.brain import evaluate as brain_decide_default
+from app.brain import evaluate as brain_decide_default, evaluate_trader
+from app.brain.analyst import AnalystContext, run_analyst
+from app.brain.brief_store import persist_brief, latest_valid_brief, filter_brief_for
 from app.brain.context import build_context
 from app.brain import journal
 from app.brain.memory import run_reflection_result, run_distillation_result, ClosedTrade
@@ -55,6 +57,32 @@ async def _position_move(market, symbol):
     if not closes or len(closes) < 2:
         return None
     return movement_change(closes[0], closes[-1])
+
+
+async def run_analyst_cycle(session, market, *, run=run_analyst, adapter=None):
+    """One shared analyst call for the cycle: synthesize TOP_100 + recent news into a MarketBrief
+    and persist it. Returns the row (usable) or None (analyst parse failed). Injectable run/adapter
+    for tests."""
+    symbols = await market.get_top_symbols("USDT", 100)
+    snapshot = await market.get_universe_snapshot(symbols)
+    observations = recent_observations_for(session, symbols, limit=settings.analyst_news_limit)
+    ctx = AnalystContext(universe=snapshot, observations=observations)
+    if adapter is None:
+        adapter = make_adapter("openrouter", settings.analyst_model)
+    result = run(ctx, adapter)
+    row = persist_brief(session, uuid4().hex, result)
+    return row if result.parse_status != "failed" else None
+
+
+async def get_or_bootstrap_brief(session, market, *, run_cycle=None):
+    """Latest valid brief, or bootstrap one via run_analyst_cycle if none exists yet (cold start).
+    The only analyst run outside the hourly cycle."""
+    brief = latest_valid_brief(session)
+    if brief is not None:
+        return brief
+    if run_cycle is None:
+        run_cycle = run_analyst_cycle
+    return await run_cycle(session, market)
 
 
 async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:
