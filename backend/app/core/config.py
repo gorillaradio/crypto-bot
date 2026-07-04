@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # --- brain v1 ---
     min_trade_usd: Decimal = Decimal("5")
 
+    # --- brain v2 (Fase 6) ---
+    analyst_model: str = "deepseek/deepseek-v4-pro"   # OpenRouter slug — verify at wiring/deploy
+    brief_max_highlights: int = 15
+    analyst_news_limit: int = 30
+
     anthropic_api_key: str = ""
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"

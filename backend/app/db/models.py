@@ -29,6 +29,9 @@ class Agent(Base):
     # News wake bookmark: highest Observation.id this agent has already "seen"
     # (present in a prior decision's prompt). NULL = never decided yet.
     last_seen_observation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    # Brain version: "v1" = monolithic prompt (baseline), "v2" = analyst+trader two-stage.
+    brain_version: Mapped[str] = mapped_column(String(10), nullable=False,
+                                               default="v1", server_default="v1")
 
     positions: Mapped[list["Position"]] = relationship(back_populates="agent")
 
@@ -155,4 +158,23 @@ class Observation(Base):
     # MUST be written UTC-aware: SQLite drops tzinfo, so any datetime ordering/compare
     # is correct only while every writer stores UTC. Sole writer today: app/feeds/rss.py.
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class MarketBrief(Base):
+    __tablename__ = "market_briefs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cycle_id: Mapped[str] = mapped_column(String(32), index=True)
+    # Parsed brief JSON (regime/highlights/key_news). NULL when the analyst parse failed
+    # → latest_valid_brief() skips it. Present rows (parse ok/repaired) are reusable.
+    parsed_brief: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Audit (Fase 1 parity): the analyst call is recorded here, not in DecisionRecord,
+    # because it is shared/per-cycle, not per-agent.
+    system_prompt: Mapped[str] = mapped_column(String)
+    user_prompt: Mapped[str] = mapped_column(String)
+    raw_response: Mapped[str | None] = mapped_column(String, nullable=True)
+    parse_status: Mapped[str] = mapped_column(String(10))    # "ok" | "repaired" | "failed"
+    model_provider: Mapped[str] = mapped_column(String(40))
+    model_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
