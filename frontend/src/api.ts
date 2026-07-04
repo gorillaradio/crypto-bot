@@ -47,6 +47,17 @@ export type MemoryEntry = {
 };
 export type PromptPair = { system: string; user: string; note?: string | null };
 export type PromptPreview = { decision: PromptPair; reflection: PromptPair; retry: PromptPair };
+export type Decision = {
+  id: number;
+  cycle_id: string;
+  kind: string;
+  trigger: string;
+  parsed_output: string | null;
+  parse_status: string;
+  model_name: string | null;
+  latency_ms: number;
+  created_at: string;
+};
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
@@ -65,6 +76,7 @@ export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/p
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
 export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);
 export const getPrompt = (id: number) => get<PromptPreview>(`/api/agents/${id}/prompt`);
+export const getDecisions = (id: number) => get<Decision[]>(`/api/agents/${id}/decisions`);
 
 export type AgentCreateInput = {
   name: string;
