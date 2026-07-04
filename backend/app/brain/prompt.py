@@ -15,54 +15,9 @@ Use BUY with usd_amount to open/add, SELL with fraction (1 = all) to reduce/clos
 Numbers must be JSON strings. Output JSON only, no prose."""
 
 
-def render_prompt(ctx: DecisionContext) -> tuple[str, str]:
-    system = _SYSTEM.format(instructions=ctx.instructions or "(none provided)")
-
-    lines = []
-    if ctx.wake_reason:
-        lines += [f"⚠ {ctx.wake_reason}", ""]
-    lines += [f"Cash: ${ctx.cash_usd}", f"Equity: ${ctx.equity_usd}", "", "Open positions:"]
-    if ctx.positions:
-        for p in ctx.positions:
-            lines.append(f"  {p.symbol}: qty {p.quantity} @ avg ${p.avg_price}, "
-                         f"now ${p.last_price} ({p.unrealized_pnl_pct:+.2f}%)")
-    else:
-        lines.append("  (none)")
-
-    lines += ["", "Market (universe):"]
-    for c in sorted(ctx.universe, key=lambda c: c.symbol):
-        lines.append(f"  {c.symbol}: ${c.price} ({c.pct_24h:+.2f}% 24h)")
-
-    lines += ["", "Recent events:"]
-    lines += [f"  - {e}" for e in ctx.recent_events] or ["  (none)"]
-
-    if ctx.observations:
-        lines += ["", "Recent crypto news (headlines; context only, not advice):"]
-        for o in ctx.observations:
-            when = o.published_at.strftime("%m-%d %H:%M")
-            title = o.title if len(o.title) <= 160 else o.title[:157] + "..."
-            tag = f"[{', '.join(o.symbols)}]" if o.symbols else "[market]"
-            lines.append(f"  - {when} {o.source}: {title} {tag}")
-
-    mem = ctx.memory
-    mem_lines = []
-    for label, text in (("Coin theses", mem.coin_theses),
-                        ("Trade lessons", mem.trade_lessons),
-                        ("Strategy notes", mem.strategy_notes)):
-        rows = [l for l in text.splitlines() if l.strip()]
-        if rows:
-            mem_lines.append(f"{label}:")
-            mem_lines += [f"  - {l}" for l in rows]
-    if mem_lines:
-        system = system + "\n\nYour memory below is your own prior reflection on past trades — treat it as your evolving view."
-        lines += ["", "Your memory (you wrote this; update your behaviour accordingly):"] + mem_lines
-
-    return system, "\n".join(lines)
-
-
 def render_trader_prompt(ctx: DecisionContext) -> tuple[str, str]:
     """v2 trader prompt: brief (già filtrato) + posizioni live + memoria + wake_reason. Nessuna
-    tabella universo (l'analyst ha già sintetizzato il mercato). Stesso contratto Decision del v1."""
+    tabella universo (l'analyst ha già sintetizzato il mercato). Stesso contratto Decision di sempre."""
     system = _SYSTEM.format(instructions=ctx.instructions or "(none provided)")
 
     lines = []
@@ -91,8 +46,7 @@ def render_trader_prompt(ctx: DecisionContext) -> tuple[str, str]:
     else:
         lines += ["", "Market brief: (unavailable this cycle)"]
 
-    # Memory block — identical output to render_prompt (v1). Duplicated deliberately to keep the v1
-    # renderer untouched (baseline); a shared helper would refactor v1 code. ~10 lines.
+    # Blocco memoria: stesso formato usato altrove nel prompt. ~10 righe.
     mem = ctx.memory
     mem_lines = []
     for label, text in (("Coin theses", mem.coin_theses),
@@ -111,6 +65,6 @@ def render_trader_prompt(ctx: DecisionContext) -> tuple[str, str]:
 
 def retry_user_suffix(error: str) -> str:
     """Suffisso appeso al messaggio user quando la risposta non è JSON valido.
-    Condiviso tra decide() (retry reale) e il monitor dei prompt (con errore d'esempio)."""
+    Condiviso tra il ciclo di decisione (retry reale) e il monitor dei prompt (con errore d'esempio)."""
     return (f"\n\nYour previous reply was not valid JSON for the schema "
             f"({error}). Reply with ONLY the corrected JSON object.")

@@ -33,8 +33,12 @@ async def test_decision_tick_uses_per_agent_universe(db_session, monkeypatch):
     def fake_get_session():
         yield db_session
 
+    async def fake_run_analyst_cycle(session, market):
+        return None
+
     monkeypatch.setattr(jobs, "BinanceClient", lambda: FakeMarket())
     monkeypatch.setattr(jobs, "run_decision_guarded", fake_run_decision_guarded)
+    monkeypatch.setattr(jobs, "run_analyst_cycle", fake_run_analyst_cycle)
     monkeypatch.setattr(jobs, "get_session", fake_get_session)
 
     await jobs._decision_tick()

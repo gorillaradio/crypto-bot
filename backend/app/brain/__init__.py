@@ -1,7 +1,7 @@
 from time import perf_counter
 from app.brain.schema import Decision, DecisionResult
 from app.brain.context import DecisionContext
-from app.brain.prompt import render_prompt, render_trader_prompt, retry_user_suffix
+from app.brain.prompt import render_trader_prompt, retry_user_suffix
 
 
 def _elapsed_ms(t0: float) -> int:
@@ -31,13 +31,5 @@ def _evaluate_with(ctx: DecisionContext, adapter, render) -> DecisionResult:
                 system, user, raw2 if raw2 is not None else raw, "failed", _elapsed_ms(t0))
 
 
-def evaluate(ctx: DecisionContext, adapter) -> DecisionResult:
-    return _evaluate_with(ctx, adapter, render_prompt)
-
-
 def evaluate_trader(ctx: DecisionContext, adapter) -> DecisionResult:
     return _evaluate_with(ctx, adapter, render_trader_prompt)
-
-
-def decide(ctx: DecisionContext, adapter) -> Decision:
-    return evaluate(ctx, adapter).decision

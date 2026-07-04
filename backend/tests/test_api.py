@@ -79,16 +79,6 @@ def test_agent_detail_reports_equity_and_return(db_session):
     assert Decimal(body["return_pct"]) == Decimal("10")  # (110-100)/100*100
 
 
-def test_agent_out_includes_brain_version(db_session):
-    agent = Agent(name="BV", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"), brain_version="v2")
-    db_session.add(agent); db_session.commit()
-    client = _client(db_session)
-    body = client.get(f"/api/agents/{agent.id}").json()
-    assert body["brain_version"] == "v2"
-
-
 def test_get_positions_returns_holdings_with_cost_basis(db_session):
     agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
@@ -534,20 +524,6 @@ def test_get_memory_journal_empty_for_unknown_agent(db_session):
     assert resp.status_code == 200 and resp.json() == []
 
 
-def test_create_agent_defaults_brain_version_v1(db_session):
-    client = _client(db_session)
-    resp = _mk(client, name="V1def")
-    assert resp.status_code == 201
-    assert db_session.query(Agent).filter_by(name="V1def").one().brain_version == "v1"
-
-
-def test_create_agent_accepts_brain_version_v2(db_session):
-    client = _client(db_session)
-    resp = _mk(client, name="V2acc", brain_version="v2")
-    assert resp.status_code == 201
-    assert db_session.query(Agent).filter_by(name="V2acc").one().brain_version == "v2"
-
-
 def test_get_observations_returns_recent_newest_first(db_session):
     from app.db.models import Observation
     db_session.add_all([
@@ -576,7 +552,7 @@ def test_get_brief_returns_filtered_view(db_session):
     from app.db.models import MarketBrief
     agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"), brain_version="v2")
+                  cash_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     brief = {"regime": "risk-off",
              "highlights": [

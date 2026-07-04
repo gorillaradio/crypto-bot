@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.db.models import EquitySnapshot, Event, DecisionRecord, BenchmarkBasis, BenchmarkSnapshot
 from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
-from app.brain import evaluate as brain_decide_default, evaluate_trader
+from app.brain import evaluate_trader
 from app.brain.analyst import AnalystContext, run_analyst
 from app.brain.brief_store import persist_brief, latest_valid_brief, filter_brief_for
 from app.brain.context import build_context
@@ -24,32 +24,17 @@ def universe_size(agent) -> int:
     return 100 if agent.universe == "TOP_100" else 50
 
 
-async def build_agent_context(session, agent, market, symbols, *, wake_reason=None):
-    """Costruisce il DecisionContext dai dati vivi (universo, posizioni, eventi recenti,
-    memoria). Usata sia dal ciclo di decisione sia dal monitor dei prompt, così il monitor
-    mostra esattamente ciò che la pipeline invierebbe."""
-    universe = await market.get_universe_snapshot(symbols)
-
-    holdings = []
-    for pos in agent.positions:
-        last = await market.get_price(pos.symbol)
-        holdings.append((pos.symbol, pos.quantity, pos.avg_price, last))
-
-    recent = [e.message for e in (
-        session.query(Event).filter_by(agent_id=agent.id)
-        .order_by(Event.timestamp.desc()).limit(10).all())]
-
-    memory = journal.compact_view(session, agent.id)
-    observations = recent_observations_for(session, [c.symbol for c in universe])
-    return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
-                         holdings=holdings, universe=universe, recent_events=recent,
-                         memory=memory, observations=observations, wake_reason=wake_reason)
-
-
 async def build_trader_context(session, agent, market, symbols, *, wake_reason=None):
-    """v2 context: brief filtrato + posizioni live + memoria + eventi + wake_reason. NON scarica lo
-    snapshot universo (l'analyst ha già sintetizzato il mercato una volta, condiviso). Il brief viene
-    riusato (o bootstrap se non esiste ancora)."""
+    """v2 context: brief (bootstrap se assente) + posizioni live + memoria + eventi + wake_reason.
+    NON scarica lo snapshot universo (l'analyst ha già sintetizzato il mercato una volta, condiviso)."""
+    brief_row = await get_or_bootstrap_brief(session, market)
+    return await assemble_trader_context(session, agent, market, symbols, brief_row,
+                                         wake_reason=wake_reason)
+
+
+async def assemble_trader_context(session, agent, market, symbols, brief_row, *, wake_reason=None):
+    """Assembla il DecisionContext del trader da un brief_row GIÀ risolto (nessun bootstrap qui).
+    Condiviso dal ciclo di decisione (brief con bootstrap) e dal monitor prompt (solo latest, no LLM)."""
     holdings = []
     for pos in agent.positions:
         last = await market.get_price(pos.symbol)
@@ -58,21 +43,10 @@ async def build_trader_context(session, agent, market, symbols, *, wake_reason=N
         session.query(Event).filter_by(agent_id=agent.id)
         .order_by(Event.timestamp.desc()).limit(10).all())]
     memory = journal.compact_view(session, agent.id)
-    brief_row = await get_or_bootstrap_brief(session, market)
     brief = filter_brief_for(brief_row, symbols) if brief_row is not None else None
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
-                         holdings=holdings, universe=[], recent_events=recent,
+                         holdings=holdings, recent_events=recent,
                          memory=memory, brief=brief, wake_reason=wake_reason)
-
-
-def _select_brain(agent):
-    return evaluate_trader if agent.brain_version == "v2" else brain_decide_default
-
-
-async def _build_decision_context(session, agent, market, symbols, *, wake_reason=None):
-    if agent.brain_version == "v2":
-        return await build_trader_context(session, agent, market, symbols, wake_reason=wake_reason)
-    return await build_agent_context(session, agent, market, symbols, wake_reason=wake_reason)
 
 
 async def _position_move(market, symbol):
@@ -194,7 +168,7 @@ async def run_decision(session, agent, market, symbols, *, wake_reason=None, tri
                        brain_decide=None, reflect=run_reflection_result,
                        distill=run_distillation_result) -> None:
     if brain_decide is None:
-        brain_decide = _select_brain(agent)
+        brain_decide = evaluate_trader
     cycle_id = uuid4().hex
     await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill,
                             cycle_id, wake_reason, trigger)
@@ -228,8 +202,8 @@ async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=N
 async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill,
                             cycle_id: str, wake_reason=None, trigger=None) -> None:
     try:
-        ctx = await _build_decision_context(session, agent, market, symbols, wake_reason=wake_reason)
-        universe_symbols = {c.symbol for c in ctx.universe} if ctx.universe else set(symbols)
+        ctx = await build_trader_context(session, agent, market, symbols, wake_reason=wake_reason)
+        universe_symbols = set(symbols)
         adapter = make_adapter(agent.model_provider, agent.model_name)
         result = brain_decide(ctx, adapter)
     except Exception as exc:

@@ -4,7 +4,7 @@ import { AgentSidebar } from "../components/AgentSidebar";
 import type { Agent } from "../api";
 
 const agent = (over: Partial<Agent>): Agent => ({
-  id: 1, name: "A", status: "running", brain_version: "v1", instructions: "",
+  id: 1, name: "A", status: "running", instructions: "",
   cash_usd: "0", equity: "100", return_pct: "0",
   duration_start: "2026-06-29T00:00:00Z", duration_end: "", ...over,
 });

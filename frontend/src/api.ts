@@ -7,7 +7,6 @@ export type Agent = {
   id: number;
   name: string;
   status: string;
-  brain_version: string;
   instructions: string;
   cash_usd: string;
   equity: string;
