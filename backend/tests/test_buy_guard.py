@@ -29,7 +29,7 @@ async def test_guard_uses_symbols_when_universe_empty(db_session, monkeypatch):
     agent = _agent(db_session)
 
     async def _fake_ctx(session, ag, market, symbols, *, wake_reason=None):
-        return build_context(instructions="", cash_usd=ag.cash_usd, holdings=[], universe=[],
+        return build_context(instructions="", cash_usd=ag.cash_usd, holdings=[],
                              recent_events=[], brief=None, wake_reason=wake_reason)
     monkeypatch.setattr(runtime, "build_trader_context", _fake_ctx)
 

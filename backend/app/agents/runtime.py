@@ -45,7 +45,7 @@ async def assemble_trader_context(session, agent, market, symbols, brief_row, *,
     memory = journal.compact_view(session, agent.id)
     brief = filter_brief_for(brief_row, symbols) if brief_row is not None else None
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
-                         holdings=holdings, universe=[], recent_events=recent,
+                         holdings=holdings, recent_events=recent,
                          memory=memory, brief=brief, wake_reason=wake_reason)
 
 
@@ -203,7 +203,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                             cycle_id: str, wake_reason=None, trigger=None) -> None:
     try:
         ctx = await build_trader_context(session, agent, market, symbols, wake_reason=wake_reason)
-        universe_symbols = {c.symbol for c in ctx.universe} if ctx.universe else set(symbols)
+        universe_symbols = set(symbols)
         adapter = make_adapter(agent.model_provider, agent.model_name)
         result = brain_decide(ctx, adapter)
     except Exception as exc:

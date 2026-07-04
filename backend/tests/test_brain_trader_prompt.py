@@ -21,7 +21,7 @@ def _brief():
 
 def _ctx(brief=None):
     return build_context(instructions="favor blue chips", cash_usd=Decimal("100"),
-                         holdings=[], universe=[], recent_events=[], brief=brief,
+                         holdings=[], recent_events=[], brief=brief,
                          wake_reason=None)
 
 
@@ -39,7 +39,7 @@ def test_trader_prompt_handles_missing_brief():
 
 
 def test_trader_prompt_surfaces_wake_reason():
-    ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[], universe=[],
+    ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
                         recent_events=[], brief=_brief(),
                         wake_reason="SOLUSDT news: hack")
     _system, user = render_trader_prompt(ctx)
