@@ -65,6 +65,16 @@ async def build_trader_context(session, agent, market, symbols, *, wake_reason=N
                          memory=memory, brief=brief, wake_reason=wake_reason)
 
 
+def _select_brain(agent):
+    return evaluate_trader if agent.brain_version == "v2" else brain_decide_default
+
+
+async def _build_decision_context(session, agent, market, symbols, *, wake_reason=None):
+    if agent.brain_version == "v2":
+        return await build_trader_context(session, agent, market, symbols, wake_reason=wake_reason)
+    return await build_agent_context(session, agent, market, symbols, wake_reason=wake_reason)
+
+
 async def _position_move(market, symbol):
     """Signed ~window-hour price move for a symbol via klines. None if unavailable
     (missing method / network error / too few candles) — movement is discretionary
@@ -181,8 +191,10 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
 
 
 async def run_decision(session, agent, market, symbols, *, wake_reason=None, trigger=None,
-                       brain_decide=brain_decide_default, reflect=run_reflection_result,
+                       brain_decide=None, reflect=run_reflection_result,
                        distill=run_distillation_result) -> None:
+    if brain_decide is None:
+        brain_decide = _select_brain(agent)
     cycle_id = uuid4().hex
     await _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill,
                             cycle_id, wake_reason, trigger)
@@ -200,7 +212,7 @@ def _agent_lock(agent_id: int) -> asyncio.Lock:
 
 
 async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=None, trigger=None,
-                               brain_decide=brain_decide_default, reflect=run_reflection_result,
+                               brain_decide=None, reflect=run_reflection_result,
                                distill=run_distillation_result) -> bool:
     """Esegue una decisione sotto il lock dell'agente. Se una decisione è già in corso per
     questo agente, salta e ritorna False (quella in corso copre la situazione)."""
@@ -216,8 +228,8 @@ async def run_decision_guarded(session, agent, market, symbols, *, wake_reason=N
 async def _run_decision_llm(session, agent, market, symbols, brain_decide, reflect, distill,
                             cycle_id: str, wake_reason=None, trigger=None) -> None:
     try:
-        ctx = await build_agent_context(session, agent, market, symbols, wake_reason=wake_reason)
-        universe_symbols = {c.symbol for c in ctx.universe}
+        ctx = await _build_decision_context(session, agent, market, symbols, wake_reason=wake_reason)
+        universe_symbols = {c.symbol for c in ctx.universe} if ctx.universe else set(symbols)
         adapter = make_adapter(agent.model_provider, agent.model_name)
         result = brain_decide(ctx, adapter)
     except Exception as exc:
