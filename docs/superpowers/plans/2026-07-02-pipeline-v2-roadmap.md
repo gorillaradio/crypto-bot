@@ -200,6 +200,24 @@ operativa durante tutto il percorso (nessuna fase è un big-bang rewrite).
 | 3 — Memoria a journal | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-memoria-journal](2026-07-03-memoria-journal.md) | 10 task, 10 commit, 188 backend + 41 frontend verdi, 2 migration (create+backfill, drop), final review opus ready-to-merge |
 | 4 — Ingestion news | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-ingestion-news](2026-07-03-ingestion-news.md) | 9 task, 9 commit, crypto-native RSS (CoinDesk/Cointelegraph/CryptoSlate), Observation table + poll tick + sezione prompt, feedparser dep; 213 backend + 41 frontend verdi; final review opus ready-to-merge |
 | 5 — Trigger engine | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-trigger-engine](2026-07-03-trigger-engine.md) | 8 task + fix watermark loss-free + finaliz.; 10 commit; news+movimento(klines)+budget su `run_heartbeat`; 239 backend + 41 frontend verdi; single Alembic head `940cbbd9c670`; final OPUS review ready-to-merge (1 Important fixato) |
-| 6 — Brain a due stadi | ⬜ | — | dipende da 4, 5 |
+| 6 — Brain a due stadi | ⬜ | — | dipende da 4, 5; includere nel piano la **vista del market brief** in dashboard (censimento 3 lug) |
+| 7 — UI di completamento | ⬜ | — | da censimento 3 lug: endpoint+feed **osservazioni news** (`GET /agents/{id}/observations` manca del tutto), **pannello decisioni archiviate** (endpoint c'è, manca frontend), colonna **P&L per posizione**; vista brief solo se non fatta in Fase 6 |
 
 Stati: ⬜ da pianificare → 📝 piano scritto → 🔨 in esecuzione → ✅ mergiata.
+
+### Chiusura branch (dopo Fase 6, prima o insieme alla Fase 7)
+
+Il merge `pipeline-v2` → `main` **auto-deploya in produzione** tutto in un colpo.
+Da sapere (censimento 3 lug, a fasi 1–5 complete):
+- catena di migrazioni Alembic nuove, tra cui **backfill `agent_memory` →
+  `memory_entries` seguito dal drop di `agent_memory`** (irreversibile in prod:
+  il backfill deve girare prima del drop — l'ordine della catena lo garantisce,
+  non fare interventi manuali);
+- dipendenza nuova backend: `feedparser` (pura Python, nessun requisito di sistema);
+- 2 env var opzionali con default 900s: `SCORING_SECONDS`, `NEWS_POLL_SECONDS`
+  (da aggiungere a `/opt/crypto-bot/.env` solo se si vuole un tuning diverso).
+
+**Resta backlog, NON è completamento** (feature nuove con decisioni di prodotto
+proprie, da prioritizzare dopo qualche settimana di eval): notifiche
+Telegram/WhatsApp; benchmark esterni S&P/NVDA (serve fonte dati non-Binance);
+curatela dinamica dell'universo.
