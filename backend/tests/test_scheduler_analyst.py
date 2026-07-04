@@ -8,8 +8,8 @@ from app.scheduler import jobs
 pytestmark = pytest.mark.asyncio
 
 
-def _agent(session, brain_version):
-    a = Agent(name="T", brain_version=brain_version, status="running", cash_usd=Decimal("100"),
+def _agent(session):
+    a = Agent(name="T", status="running", cash_usd=Decimal("100"),
               model_name="m", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1))
     session.add(a); session.commit()
@@ -22,8 +22,8 @@ class _FakeMarket:
         self.get_top_symbols = AsyncMock(return_value=["BTCUSDT"])
 
 
-async def test_analyst_runs_once_when_v2_present(db_session, monkeypatch):
-    _agent(db_session, "v1"); _agent(db_session, "v2")
+async def test_analyst_runs_once_when_agents_present(db_session, monkeypatch):
+    _agent(db_session)
     monkeypatch.setattr(jobs, "get_session", lambda: _ctxmgr(db_session))
     monkeypatch.setattr(jobs, "BinanceClient", lambda: _FakeMarket())
     monkeypatch.setattr(jobs, "run_decision_guarded", AsyncMock(return_value=True))
@@ -34,8 +34,7 @@ async def test_analyst_runs_once_when_v2_present(db_session, monkeypatch):
     cycle.assert_awaited_once()
 
 
-async def test_analyst_skipped_when_all_v1(db_session, monkeypatch):
-    _agent(db_session, "v1")
+async def test_analyst_skipped_when_no_running_agents(db_session, monkeypatch):
     monkeypatch.setattr(jobs, "get_session", lambda: _ctxmgr(db_session))
     monkeypatch.setattr(jobs, "BinanceClient", lambda: _FakeMarket())
     monkeypatch.setattr(jobs, "run_decision_guarded", AsyncMock(return_value=True))

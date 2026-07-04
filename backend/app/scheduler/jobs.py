@@ -31,7 +31,7 @@ async def _decision_tick():
     symbols_cache: dict[int, list[str]] = {}
     with get_session() as session:
         agents = session.query(Agent).filter_by(status="running").all()
-        if any(a.brain_version == "v2" for a in agents):
+        if agents:
             try:
                 await run_analyst_cycle(session, market)
             except Exception as exc:
