@@ -33,3 +33,28 @@ def test_market_brief_insert_and_nullable_payload(db_session):
                     latency_ms=12)
     db_session.add(b); db_session.commit()
     assert b.id is not None and b.parsed_brief is None and b.created_at is not None
+
+
+from app.brain.analyst_schema import Highlight, MarketBriefSchema
+
+
+def test_parses_full_brief():
+    raw = ('{"regime":"risk-on, BTC leads","highlights":'
+           '[{"symbol":"SOLUSDT","snapshot":"$182 (+9.4% 24h)","signal":"bullish","note":"momentum"}],'
+           '"key_news":["Fed holds rates"]}')
+    b = MarketBriefSchema.model_validate_json(raw)
+    assert b.regime.startswith("risk-on")
+    assert b.highlights[0].symbol == "SOLUSDT" and b.highlights[0].signal == "bullish"
+    assert b.key_news == ["Fed holds rates"]
+
+
+def test_defaults_empty():
+    b = MarketBriefSchema.model_validate_json("{}")
+    assert b.regime == "" and b.highlights == [] and b.key_news == []
+
+
+def test_signal_rejects_unknown():
+    import pytest
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Highlight.model_validate({"symbol": "BTCUSDT", "signal": "moon"})
