@@ -154,3 +154,17 @@ class ShareLinkOut(BaseModel):
     token: str
     url: str
     created_at: datetime
+
+
+class HighlightOut(BaseModel):
+    symbol: str
+    snapshot: str
+    signal: str
+    note: str
+
+
+class MarketBriefOut(BaseModel):
+    regime: str
+    highlights: list[HighlightOut]
+    key_news: list[str]
+    as_of: datetime | None = None

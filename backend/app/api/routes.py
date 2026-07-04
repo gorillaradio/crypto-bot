@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PositionOut, PromptPreviewOut
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PositionOut, PromptPreviewOut
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
+from app.brain.brief_store import latest_valid_brief, filter_brief_for
+from app.agents.runtime import universe_size
 from app.eval.metrics import total_return_pct, max_drawdown_pct, sharpe, hit_rate
 
 router = APIRouter(prefix="/api")
@@ -256,6 +258,28 @@ def get_decisions(agent_id: int, session=Depends(session_dep), _: str = Depends(
         .limit(100)
         .all()
     )
+
+
+@router.get("/agents/{agent_id}/brief", response_model=MarketBriefOut | None)
+async def get_brief(agent_id: int, session=Depends(session_dep),
+                    market=Depends(market_dep), _: str = Depends(require_viewer_or_admin)):
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "agent not found")
+    row = latest_valid_brief(session)
+    if row is None:
+        return None
+    try:
+        symbols = await market.get_top_symbols("USDT", universe_size(agent))
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"brief unavailable: {exc}")
+    view = filter_brief_for(row, symbols)
+    return MarketBriefOut(
+        regime=view.regime,
+        highlights=[HighlightOut(symbol=h.symbol, snapshot=h.snapshot, signal=h.signal, note=h.note)
+                    for h in view.highlights],
+        key_news=view.key_news,
+        as_of=view.as_of)
 
 
 @router.get("/agents/{agent_id}/prompt", response_model=PromptPreviewOut)

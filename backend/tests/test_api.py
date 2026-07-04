@@ -569,3 +569,61 @@ def test_get_observations_returns_recent_newest_first(db_session):
 def test_get_observations_empty(db_session):
     client = _client(db_session)
     assert client.get("/api/observations").json() == []
+
+
+def test_get_brief_returns_filtered_view(db_session):
+    import json as _json
+    from app.db.models import MarketBrief
+    agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"), brain_version="v2")
+    db_session.add(agent); db_session.commit()
+    brief = {"regime": "risk-off",
+             "highlights": [
+                 {"symbol": "BTCUSDT", "snapshot": "s1", "signal": "bullish", "note": "n1"},
+                 {"symbol": "SOLUSDT", "snapshot": "s2", "signal": "bearish", "note": "n2"}],
+             "key_news": ["headline A"]}
+    db_session.add(MarketBrief(cycle_id="c1", parsed_brief=_json.dumps(brief),
+                               system_prompt="s", user_prompt="u", raw_response="r",
+                               parse_status="ok", model_provider="openrouter",
+                               model_name="m", latency_ms=10))
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market()                        # get_top_symbols → ["BTCUSDT"]
+    body = client.get(f"/api/agents/{agent.id}/brief").json()
+    assert body["regime"] == "risk-off"
+    assert body["key_news"] == ["headline A"]
+    assert [h["symbol"] for h in body["highlights"]] == ["BTCUSDT"]   # SOLUSDT fuori universo → filtrato
+    assert body["highlights"][0]["signal"] == "bullish"
+
+
+def test_get_brief_null_when_no_brief(db_session):
+    agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    client = _client(db_session)
+    _use_fake_market()
+    resp = client.get(f"/api/agents/{agent.id}/brief")
+    assert resp.status_code == 200 and resp.json() is None
+
+
+def test_get_brief_404_when_agent_missing(db_session):
+    client = _client(db_session)
+    _use_fake_market()
+    assert client.get("/api/agents/999/brief").status_code == 404
+
+
+def test_get_brief_502_when_market_fails(db_session):
+    import json as _json
+    from app.db.models import MarketBrief
+    agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    db_session.add(MarketBrief(cycle_id="c1",
+                               parsed_brief=_json.dumps({"regime": "x", "highlights": [], "key_news": []}),
+                               system_prompt="s", user_prompt="u", raw_response="r",
+                               parse_status="ok", model_provider="openrouter", model_name="m", latency_ms=1))
+    db_session.commit()
+    client = _client(db_session)
+    app.dependency_overrides[routes.market_dep] = lambda: FailingMarketPreview()
+    assert client.get(f"/api/agents/{agent.id}/brief").status_code == 502
