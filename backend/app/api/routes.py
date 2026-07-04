@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,6 +14,7 @@ from app.agents.runtime import universe_size
 from app.eval.metrics import total_return_pct, max_drawdown_pct, sharpe, hit_rate
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 def _latest_equity(session, agent: Agent) -> Decimal:
@@ -119,7 +121,8 @@ async def get_positions(agent_id: int, session=Depends(session_dep),
         try:
             snap = await market.get_universe_snapshot([p.symbol for p in rows])
             prices = {c.symbol: c.price for c in snap}
-        except Exception:
+        except Exception as exc:
+            logger.warning("positions P&L: market snapshot failed for agent %s: %s", agent_id, exc)
             prices = {}                    # market down → degrada a cost-only, mai 502
     out = []
     for p in rows:

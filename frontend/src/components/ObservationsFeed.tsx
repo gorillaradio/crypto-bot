@@ -7,8 +7,8 @@ export function ObservationsFeed({ observations }: { observations: Observation[]
   if (!observations.length) return <p className="empty">Nessuna osservazione recente.</p>;
   return (
     <ul className="flex flex-col gap-3">
-      {observations.map((o, i) => (
-        <li key={i} className="flex flex-col gap-0.5">
+      {observations.map((o) => (
+        <li key={o.url ?? `${o.title}-${o.published_at}`} className="flex flex-col gap-0.5">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium">{o.source}</span>
             <span>{time(o.published_at)}</span>
