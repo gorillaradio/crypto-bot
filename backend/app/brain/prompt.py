@@ -17,7 +17,7 @@ Numbers must be JSON strings. Output JSON only, no prose."""
 
 def render_trader_prompt(ctx: DecisionContext) -> tuple[str, str]:
     """v2 trader prompt: brief (già filtrato) + posizioni live + memoria + wake_reason. Nessuna
-    tabella universo (l'analyst ha già sintetizzato il mercato). Stesso contratto Decision del v1."""
+    tabella universo (l'analyst ha già sintetizzato il mercato). Stesso contratto Decision di sempre."""
     system = _SYSTEM.format(instructions=ctx.instructions or "(none provided)")
 
     lines = []
@@ -65,6 +65,6 @@ def render_trader_prompt(ctx: DecisionContext) -> tuple[str, str]:
 
 def retry_user_suffix(error: str) -> str:
     """Suffisso appeso al messaggio user quando la risposta non è JSON valido.
-    Condiviso tra decide() (retry reale) e il monitor dei prompt (con errore d'esempio)."""
+    Condiviso tra il ciclo di decisione (retry reale) e il monitor dei prompt (con errore d'esempio)."""
     return (f"\n\nYour previous reply was not valid JSON for the schema "
             f"({error}). Reply with ONLY the corrected JSON object.")

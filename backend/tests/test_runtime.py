@@ -210,6 +210,9 @@ async def test_llm_data_gathering_error_writes_event_no_trade(db_session):
     """If a market fetch raises while building the trader context, run_decision must not raise,
     must write a decision event recording the error, and must create zero Trade rows."""
     agent = _llm_agent(db_session)
+    # held position is load-bearing: assemble_trader_context iterates positions and calls
+    # get_price(pos.symbol), so the broken get_price below is what raises (the v2 path
+    # doesn't fetch a universe). Without a position, get_price is never reached.
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.commit()
