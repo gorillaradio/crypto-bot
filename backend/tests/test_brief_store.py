@@ -28,6 +28,15 @@ def test_latest_valid_skips_failed_and_returns_newest(db_session):
     assert latest is not None and "old" in latest.parsed_brief         # skips the failed one
 
 
+def test_latest_valid_returns_newest_among_two_valid(db_session):
+    persist_brief(db_session, "c1", _result(regime="older"))
+    persist_brief(db_session, "c2", _result(regime="newer"))   # both valid (parse ok)
+    latest = latest_valid_brief(db_session)
+    # newest of two VALID rows must win — this fails if order_by were removed
+    # (SQLite .first() without ORDER BY returns the oldest/first-inserted row)
+    assert latest is not None and "newer" in latest.parsed_brief
+
+
 def test_latest_valid_none_when_empty(db_session):
     assert latest_valid_brief(db_session) is None
 
