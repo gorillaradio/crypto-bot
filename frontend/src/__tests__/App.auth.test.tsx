@@ -17,6 +17,7 @@ vi.mock("../api", () => ({
   getMemory: vi.fn(() => Promise.resolve(null)),
   getMemoryJournal: vi.fn(() => Promise.resolve([])),
   getPrompt: vi.fn(() => Promise.resolve(null)),
+  getBrief: vi.fn(() => Promise.resolve(null)),
   logout: vi.fn(() => Promise.resolve()),
   exchangeViewerToken: vi.fn(),
   getKlines: vi.fn(() => Promise.resolve([])),

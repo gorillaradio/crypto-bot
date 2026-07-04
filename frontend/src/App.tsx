@@ -21,6 +21,7 @@ import { MemoryJournal } from "./components/MemoryJournal";
 import { DecisionsPanel } from "./components/DecisionsPanel";
 import { ObservationsFeed } from "./components/ObservationsFeed";
 import { PromptPanel } from "./components/PromptPanel";
+import { MarketBriefPanel } from "./components/MarketBriefPanel";
 import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
 import { AgentSidebar } from "./components/AgentSidebar";
@@ -261,6 +262,15 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                 <ObservationsFeed observations={observations} />
               </CardContent>
             </Card>
+
+            {selId !== null && sel && (
+              <Card>
+                <CardContent>
+                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Market brief</h2>
+                  <MarketBriefPanel agentId={selId} brainVersion={sel.brain_version} />
+                </CardContent>
+              </Card>
+            )}
 
             {selId !== null && (
               <Card>

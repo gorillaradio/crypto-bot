@@ -65,6 +65,8 @@ export type Observation = {
   published_at: string;
   symbols: string[];
 };
+export type Highlight = { symbol: string; snapshot: string; signal: string; note: string };
+export type MarketBrief = { regime: string; highlights: Highlight[]; key_news: string[]; as_of: string | null };
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
@@ -85,6 +87,7 @@ export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/
 export const getPrompt = (id: number) => get<PromptPreview>(`/api/agents/${id}/prompt`);
 export const getDecisions = (id: number) => get<Decision[]>(`/api/agents/${id}/decisions`);
 export const getObservations = () => get<Observation[]>("/api/observations");
+export const getBrief = (id: number) => get<MarketBrief | null>(`/api/agents/${id}/brief`);
 
 export type AgentCreateInput = {
   name: string;
