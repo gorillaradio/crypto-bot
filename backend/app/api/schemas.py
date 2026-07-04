@@ -29,6 +29,7 @@ class AgentOut(BaseModel):
     return_pct: Decimal
     duration_start: datetime
     duration_end: datetime
+    brain_version: str
 
 
 class PositionOut(BaseModel):

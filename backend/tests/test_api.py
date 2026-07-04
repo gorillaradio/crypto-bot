@@ -79,6 +79,16 @@ def test_agent_detail_reports_equity_and_return(db_session):
     assert Decimal(body["return_pct"]) == Decimal("10")  # (110-100)/100*100
 
 
+def test_agent_out_includes_brain_version(db_session):
+    agent = Agent(name="BV", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"), brain_version="v2")
+    db_session.add(agent); db_session.commit()
+    client = _client(db_session)
+    body = client.get(f"/api/agents/{agent.id}").json()
+    assert body["brain_version"] == "v2"
+
+
 def test_get_positions_returns_holdings_with_cost_basis(db_session):
     agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),

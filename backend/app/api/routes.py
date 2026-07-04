@@ -40,6 +40,7 @@ def _agent_out(session, agent: Agent) -> AgentOut:
         return_pct=ret,
         duration_start=agent.duration_start,
         duration_end=agent.duration_end,
+        brain_version=agent.brain_version,
     )
 
 
