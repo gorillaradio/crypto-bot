@@ -49,7 +49,7 @@ describe("AgentFormModal edit", () => {
   it("only allows renaming and calls updateAgent", async () => {
     const onSaved = vi.fn();
     vi.mocked(updateAgent).mockResolvedValue({ id: 2, name: "Renamed" } as never);
-    const agent = { id: 2, name: "Old", status: "running", brain_version: "v1", instructions: "",
+    const agent = { id: 2, name: "Old", status: "running", instructions: "",
       cash_usd: "100", equity: "100", return_pct: "0",
       duration_start: "", duration_end: "" };
     render(<AgentFormModal mode="edit" agent={agent} onClose={() => {}} onSaved={onSaved} />);

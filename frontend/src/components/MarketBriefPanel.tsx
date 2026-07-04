@@ -32,7 +32,7 @@ export function BriefView({ brief }: { brief: MarketBrief }) {
   );
 }
 
-export function MarketBriefPanel({ agentId, brainVersion }: { agentId: number; brainVersion: string }) {
+export function MarketBriefPanel({ agentId }: { agentId: number }) {
   const [brief, setBrief] = useState<MarketBrief | null>(null);
   const [state, setState] = useState<"loading" | "error" | "ready">("loading");
   useEffect(() => {
@@ -46,11 +46,6 @@ export function MarketBriefPanel({ agentId, brainVersion }: { agentId: number; b
 
   return (
     <div className="flex flex-col gap-2">
-      {brainVersion !== "v2" && (
-        <p className="text-xs text-muted-foreground">
-          Questo agente usa il brain v1 (monolitico) e non consuma il market brief.
-        </p>
-      )}
       {state === "loading" && <p className="text-sm text-muted-foreground">Carico il brief…</p>}
       {state === "error" && <p className="text-sm text-muted-foreground">Brief non disponibile.</p>}
       {state === "ready" && (brief
