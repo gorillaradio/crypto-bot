@@ -18,14 +18,6 @@ def test_brain_v2_settings_present():
     assert settings.analyst_news_limit == 30
 
 
-def test_agent_brain_version_defaults_v1(db_session):
-    assert _agent(db_session).brain_version == "v1"
-
-
-def test_agent_brain_version_can_be_v2(db_session):
-    assert _agent(db_session, brain_version="v2").brain_version == "v2"
-
-
 def test_market_brief_insert_and_nullable_payload(db_session):
     b = MarketBrief(cycle_id="c1", parsed_brief=None, system_prompt="s", user_prompt="u",
                     raw_response=None, parse_status="failed",

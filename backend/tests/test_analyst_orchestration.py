@@ -58,7 +58,7 @@ from app.agents.runtime import build_trader_context, run_analyst_cycle
 
 
 def _agent(session):
-    a = Agent(name="T", brain_version="v2", cash_usd=Decimal("100"),
+    a = Agent(name="T", cash_usd=Decimal("100"),
               duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1))
     session.add(a); session.commit()

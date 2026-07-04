@@ -29,9 +29,6 @@ class Agent(Base):
     # News wake bookmark: highest Observation.id this agent has already "seen"
     # (present in a prior decision's prompt). NULL = never decided yet.
     last_seen_observation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
-    # Brain version: "v1" = monolithic prompt (baseline), "v2" = analyst+trader two-stage.
-    brain_version: Mapped[str] = mapped_column(String(10), nullable=False,
-                                               default="v1", server_default="v1")
 
     positions: Mapped[list["Position"]] = relationship(back_populates="agent")
 
