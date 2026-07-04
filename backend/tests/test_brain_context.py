@@ -43,3 +43,36 @@ def test_build_context_wake_reason_defaults_none():
     ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
                         universe=[], recent_events=[])
     assert ctx.wake_reason is None
+
+
+def test_build_context_carries_observations():
+    from datetime import datetime, timezone
+    from app.brain.context import ObservationView
+    obs = [ObservationView(source="CoinDesk", title="Bitcoin ETF inflows",
+                           published_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc),
+                           symbols=["BTC"])]
+    ctx = build_context(instructions="x", cash_usd=Decimal("10"), holdings=[],
+                        universe=[], recent_events=[], observations=obs)
+    assert ctx.observations[0].title == "Bitcoin ETF inflows"
+    assert ctx.observations[0].symbols == ["BTC"]
+
+
+def test_build_context_defaults_observations_empty():
+    ctx = build_context(instructions="x", cash_usd=Decimal("10"),
+                        holdings=[], universe=[], recent_events=[])
+    assert ctx.observations == []
+
+
+def test_build_context_accepts_brief():
+    from app.brain.context import build_context, MarketBriefView, HighlightView
+    brief = MarketBriefView(regime="risk-on",
+                            highlights=[HighlightView("BTCUSDT", "$60000", "bullish", "etf")])
+    ctx = build_context(instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[],
+                        recent_events=[], brief=brief)
+    assert ctx.brief.regime == "risk-on" and ctx.brief.highlights[0].symbol == "BTCUSDT"
+
+
+def test_build_context_brief_defaults_none():
+    ctx = build_context(instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[],
+                        recent_events=[])
+    assert ctx.brief is None

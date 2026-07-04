@@ -7,6 +7,7 @@ export type Agent = {
   id: number;
   name: string;
   status: string;
+  brain_version: string;
   instructions: string;
   cash_usd: string;
   equity: string;
@@ -15,20 +16,57 @@ export type Agent = {
   duration_end: string;
 };
 export type EquityPoint = { timestamp: string; equity_usd: string };
+export type BenchmarkPoint = { kind: string; timestamp: string; equity_usd: string };
+export type BenchmarkMetric = { return_pct: string; max_drawdown_pct: string; sharpe: string };
+export type AgentMetrics = {
+  return_pct: string; max_drawdown_pct: string; sharpe: string;
+  hit_rate_24h: string | null; hit_rate_7d: string | null;
+  benchmarks: Record<string, BenchmarkMetric>;
+};
+export type ModelMetrics = {
+  model_name: string | null; n_scored_actions: number;
+  hit_rate_24h: string | null; hit_rate_7d: string | null;
+};
 export type AgentEvent = { timestamp: string; kind: string; message: string; cycle_id: string | null };
 export type Position = {
   symbol: string;
   quantity: string;
   avg_price: string;
   cost_basis: string;
+  last_price: string | null;
+  unrealized_pnl_pct: string | null;
+  market_value: string | null;
 };
 export type AgentMemory = {
   coin_theses: string;
   trade_lessons: string;
   strategy_notes: string;
 };
+export type MemoryEntry = {
+  section: string; content: string; cycle_id: string | null; active: boolean; created_at: string;
+};
 export type PromptPair = { system: string; user: string; note?: string | null };
 export type PromptPreview = { decision: PromptPair; reflection: PromptPair; retry: PromptPair };
+export type Decision = {
+  id: number;
+  cycle_id: string;
+  kind: string;
+  trigger: string;
+  parsed_output: string | null;
+  parse_status: string;
+  model_name: string | null;
+  latency_ms: number;
+  created_at: string;
+};
+export type Observation = {
+  source: string;
+  title: string;
+  url: string | null;
+  published_at: string;
+  symbols: string[];
+};
+export type Highlight = { symbol: string; snapshot: string; signal: string; note: string };
+export type MarketBrief = { regime: string; highlights: Highlight[]; key_news: string[]; as_of: string | null };
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
@@ -39,10 +77,17 @@ async function get<T>(path: string): Promise<T> {
 
 export const getAgents = () => get<Agent[]>("/api/agents");
 export const getEquity = (id: number) => get<EquityPoint[]>(`/api/agents/${id}/equity`);
+export const getBenchmarks = (id: number) => get<BenchmarkPoint[]>(`/api/agents/${id}/benchmarks`);
+export const getAgentMetrics = (id: number) => get<AgentMetrics>(`/api/agents/${id}/metrics`);
+export const getModelMetrics = () => get<ModelMetrics[]>("/api/metrics/by-model");
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
+export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);
 export const getPrompt = (id: number) => get<PromptPreview>(`/api/agents/${id}/prompt`);
+export const getDecisions = (id: number) => get<Decision[]>(`/api/agents/${id}/decisions`);
+export const getObservations = () => get<Observation[]>("/api/observations");
+export const getBrief = (id: number) => get<MarketBrief | null>(`/api/agents/${id}/brief`);
 
 export type AgentCreateInput = {
   name: string;

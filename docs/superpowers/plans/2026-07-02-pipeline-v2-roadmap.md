@@ -127,8 +127,23 @@ edge-triggered/armed esistente in `strategy.py` + heartbeat si riusa.
 rilevante" senza chiamate LLM (match per simbolo in portafoglio); timer orario
 mantenuto come fallback.
 
-**Decisioni aperte:** soglie di volatilità (da tarare sui dati reali quando si
-dettaglia la fase).
+**Deciso in dettaglio (2026-07-03, brainstorming Fase 5):**
+- Trigger v1: `schedule` (timer 1h, esente dal budget), `breach` (esistente,
+  **esente** — l'allarme di rischio sveglia sempre), `movement` e `news` (nuovi,
+  contano nel budget).
+- **movement** = |mossa su finestra ~1h| ≥ 5% (configurabili `movement_threshold`,
+  `movement_window_hours`) su una moneta **in portafoglio**, misurata via klines;
+  edge-trigger arma/disarma gemello del breach (nuova colonna `positions.move_armed`).
+- **news** = prima osservazione nuova (`Observation.id` oltre il segnalibro) che
+  nomina una moneta in portafoglio; edge-trigger via segnalibro per-agente (nuova
+  colonna `agents.last_seen_observation_id`), che avanza dopo ogni decisione.
+- **budget**: max 2 sveglie `news`+`movement`/ora, conteggio rolling sui cicli
+  `DecisionRecord` (nessuna tabella nuova); esaurito ⇒ evento **rimandato, non buttato**.
+- Orchestrazione dentro `run_heartbeat`: una sola decisione per battito, priorità
+  `breach > movement > news`; `trigger` filato esplicito fino a `DecisionRecord`.
+- Chiusura nota Fase 4: commento UTC-aware su `published_at` in `models.py`.
+- **Non-goal v1**: spike di volume (serve baseline storica → rimandato),
+  movimento/news sull'universo (solo portafoglio), rilevanza via LLM.
 
 ---
 
@@ -180,11 +195,29 @@ operativa durante tutto il percorso (nessuna fase è un big-bang rewrite).
 
 | Fase | Stato | Piano | Note |
 |------|-------|-------|------|
-| 1 — Decision record | ⬜ da pianificare | — | |
-| 2 — Evaluation harness | ⬜ | — | dipende da 1 |
-| 3 — Memoria a journal | ⬜ | — | |
-| 4 — Ingestion news | ⬜ | — | ricerca provider gratuiti da fare |
-| 5 — Trigger engine | ⬜ | — | dipende da 4 |
-| 6 — Brain a due stadi | ⬜ | — | dipende da 4, 5 |
+| 1 — Decision record | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-02-decision-record](2026-07-02-decision-record.md) | 7 commit, 130 test verdi, review opus ready-to-merge |
+| 2 — Evaluation harness | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-evaluation-harness](2026-07-03-evaluation-harness.md) | 15 task (13 piano + 2 finaliz.), 18 commit, 173 backend + 39 frontend verdi, final review opus ready-to-merge |
+| 3 — Memoria a journal | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-memoria-journal](2026-07-03-memoria-journal.md) | 10 task, 10 commit, 188 backend + 41 frontend verdi, 2 migration (create+backfill, drop), final review opus ready-to-merge |
+| 4 — Ingestion news | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-ingestion-news](2026-07-03-ingestion-news.md) | 9 task, 9 commit, crypto-native RSS (CoinDesk/Cointelegraph/CryptoSlate), Observation table + poll tick + sezione prompt, feedparser dep; 213 backend + 41 frontend verdi; final review opus ready-to-merge |
+| 5 — Trigger engine | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-03-trigger-engine](2026-07-03-trigger-engine.md) | 8 task + fix watermark loss-free + finaliz.; 10 commit; news+movimento(klines)+budget su `run_heartbeat`; 239 backend + 41 frontend verdi; single Alembic head `940cbbd9c670`; final OPUS review ready-to-merge (1 Important fixato) |
+| 6 — Brain a due stadi | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-04-brain-due-stadi](2026-07-04-brain-due-stadi.md) | 11 task + fix (test discriminante T5 + warning asyncio) + finaliz.; 13 commit (`c49e937..51e4520`); analyst+trader dietro flag `brain_version` (v1 baseline **byte-identico**), tabella `MarketBrief`, brief riusato per ciclo + cold-start bootstrap; design [specs/2026-07-04-brain-due-stadi-design](../specs/2026-07-04-brain-due-stadi-design.md); 274 backend + 41 frontend verdi; smoke migrazione up/down ok, single Alembic head `49407193a9ac`; final OPUS review **ready-to-merge** (0 Critical/Important; 1 Important plan-mandata = duplicazione memory-block, accettata per la finestra A/B, follow-up post-ritiro v1); **vista market brief → Fase 7** (deciso 4 lug) |
+| 7 — UI di completamento | ✅ fatta su `pipeline-v2` (non in main) | [2026-07-04-ui-completamento](2026-07-04-ui-completamento.md) | 9 task (4 backend + 5 frontend) + finaliz. + 2 minor post-review; 10 commit (`3258b7e..af4572e`); endpoint di lettura (P&L per posizione **autorevole** via leggera, feed **osservazioni** globale, **market brief** per-agente filtrato) + pannello **decisioni** archiviate + `brain_version` esposto/badge; **zero migrazioni** (single head `49407193a9ac` invariata); design [specs/2026-07-04-ui-completamento-design](../specs/2026-07-04-ui-completamento-design.md); 284 backend + 51 frontend verdi, `npm run build` clean; final OPUS review **ready-to-merge** (0 Critical/Important; 3 Minor cosmetici, 2 fixati) |
 
 Stati: ⬜ da pianificare → 📝 piano scritto → 🔨 in esecuzione → ✅ mergiata.
+
+### Chiusura branch (dopo Fase 6, prima o insieme alla Fase 7)
+
+Il merge `pipeline-v2` → `main` **auto-deploya in produzione** tutto in un colpo.
+Da sapere (censimento 3 lug, a fasi 1–5 complete):
+- catena di migrazioni Alembic nuove, tra cui **backfill `agent_memory` →
+  `memory_entries` seguito dal drop di `agent_memory`** (irreversibile in prod:
+  il backfill deve girare prima del drop — l'ordine della catena lo garantisce,
+  non fare interventi manuali);
+- dipendenza nuova backend: `feedparser` (pura Python, nessun requisito di sistema);
+- 2 env var opzionali con default 900s: `SCORING_SECONDS`, `NEWS_POLL_SECONDS`
+  (da aggiungere a `/opt/crypto-bot/.env` solo se si vuole un tuning diverso).
+
+**Resta backlog, NON è completamento** (feature nuove con decisioni di prodotto
+proprie, da prioritizzare dopo qualche settimana di eval): notifiche
+Telegram/WhatsApp; benchmark esterni S&P/NVDA (serve fonte dati non-Binance);
+curatela dinamica dell'universo.

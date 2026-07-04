@@ -1,7 +1,8 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from app.db.models import Agent, Position, AgentMemory
+from app.db.models import Agent, Position
 from app.brain.context import CoinSnapshot
+from app.brain import journal
 from app.agents.preview import render_agent_prompts_preview
 
 
@@ -26,7 +27,7 @@ async def test_preview_returns_three_prompts_with_real_data(db_session):
     agent = _agent(db_session, instructions="compra basso vendi alto")
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
-    db_session.add(AgentMemory(agent_id=agent.id, section="trade_lessons", content="cut losers"))
+    journal.append_entries(db_session, agent.id, "trade_lessons", ["cut losers"])
     db_session.commit()
     market = FakeMarketPreview([CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("3"))], Decimal("120"))
     out = await render_agent_prompts_preview(db_session, agent, market)

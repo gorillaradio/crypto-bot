@@ -10,7 +10,14 @@ class Settings(BaseSettings):
     fee_rate: Decimal = Decimal("0.001")
     heartbeat_seconds: int = 300
     decision_seconds: int = 3600
+    scoring_seconds: int = 900       # re-score matured decisions every 15 min
+    news_poll_seconds: int = 900     # poll crypto news feeds every 15 min
     universe_default: str = "TOP_100"
+
+    # --- trigger engine (Fase 5) ---
+    wake_budget_per_hour: int = 2          # max news+movement wakes/hour per agent
+    movement_threshold: Decimal = Decimal("0.05")   # |~1h move| >= this fraction => movement wake
+    movement_window_hours: int = 1
 
     # --- auth ---
     admin_password: str = ""
@@ -20,6 +27,11 @@ class Settings(BaseSettings):
 
     # --- brain v1 ---
     min_trade_usd: Decimal = Decimal("5")
+
+    # --- brain v2 (Fase 6) ---
+    analyst_model: str = "deepseek/deepseek-v4-pro"   # OpenRouter slug — verify at wiring/deploy
+    brief_max_highlights: int = 15
+    analyst_news_limit: int = 30
 
     anthropic_api_key: str = ""
     deepseek_api_key: str = ""

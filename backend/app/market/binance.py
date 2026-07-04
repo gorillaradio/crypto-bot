@@ -29,6 +29,15 @@ class BinanceClient:
         )
         return [Decimal(row[4]) for row in data]  # index 4 = close
 
+    async def get_price_at(self, symbol: str, ms: int) -> Decimal | None:
+        data = await self._get(
+            "/api/v3/klines",
+            {"symbol": symbol, "interval": "1h", "startTime": ms, "limit": 1},
+        )
+        if not data:
+            return None
+        return Decimal(data[0][4])  # index 4 = close
+
     async def get_top_symbols(self, quote: str = "USDT", n: int = 100) -> list[str]:
         data = await self._get("/api/v3/ticker/24hr", {})
         usdt = [

@@ -1,20 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  getAgents, getEquity, getEvents, getPositions, getMemory,
+  getAgents, getEquity, getEvents, getPositions, getMemory, getMemoryJournal, getDecisions,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
+  getBenchmarks, getAgentMetrics, getModelMetrics, getObservations,
   type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
+  type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry, type Decision,
+  type Observation,
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { EquityChart } from "./components/EquityChart";
+import { BenchmarkChart } from "./components/BenchmarkChart";
+import { MetricsPanel } from "./components/MetricsPanel";
+import { ModelMetricsPanel } from "./components/ModelMetricsPanel";
 import { PositionsTable } from "./components/PositionsTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
+import { MemoryJournal } from "./components/MemoryJournal";
+import { DecisionsPanel } from "./components/DecisionsPanel";
+import { ObservationsFeed } from "./components/ObservationsFeed";
 import { PromptPanel } from "./components/PromptPanel";
+import { MarketBriefPanel } from "./components/MarketBriefPanel";
 import { AgentFormModal } from "./components/AgentFormModal";
 import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
 import { AgentSidebar } from "./components/AgentSidebar";
+import { BrainBadge } from "./components/BrainBadge";
 import { InstructionsBlock } from "./components/InstructionsBlock";
 import { Login } from "./components/Login";
 import { ShareLinksModal } from "./components/ShareLinksModal";
@@ -55,9 +66,15 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selId, setSelId] = useState<number | null>(null);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
+  const [benchmarks, setBenchmarks] = useState<BenchmarkPoint[]>([]);
+  const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
+  const [modelMetrics, setModelMetrics] = useState<ModelMetrics[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [observations, setObservations] = useState<Observation[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
+  const [journalEntries, setJournalEntries] = useState<MemoryEntry[]>([]);
   const [modal, setModal] = useState<"create" | "edit" | "delete" | "share" | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -72,6 +89,11 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     return () => clearInterval(h);
   }, []);
 
+  // Global, not per-agent — fetched once on mount.
+  useEffect(() => {
+    getModelMetrics().then(setModelMetrics).catch(onErr);
+  }, []);
+
   useEffect(() => {
     if (selId == null && agents.length) setSelId(agents[0].id);
   }, [agents, selId]);
@@ -79,11 +101,17 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   useEffect(() => {
     if (selId == null) return;
     setMemory(null);
+    setJournalEntries([]);
     const load = () => {
       getEquity(selId).then(setEquity).catch(onErr);
+      getBenchmarks(selId).then(setBenchmarks).catch(onErr);
+      getAgentMetrics(selId).then(setMetrics).catch(onErr);
       getEvents(selId).then(setEvents).catch(onErr);
       getPositions(selId).then(setPositions).catch(onErr);
+      getDecisions(selId).then(setDecisions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);
+      getMemoryJournal(selId).then(setJournalEntries).catch(onErr);
+      getObservations().then(setObservations).catch(onErr);
     };
     load();
     const h = setInterval(load, 15000);
@@ -162,6 +190,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             <section className="pb-2">
               <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-2xl font-semibold leading-tight">{sel.name}</h1>
+                <BrainBadge version={sel.brain_version} />
                 {isAdmin && (
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => setModal("edit")}>modifica</Button>
@@ -190,6 +219,10 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                   <span className="text-xs text-muted-foreground">equity vs investimento iniziale di $100</span>
                 </div>
                 <EquityChart data={equity} baseline={100} />
+                <BenchmarkChart equity={equity} benchmarks={benchmarks} />
+                <MetricsPanel metrics={metrics} />
+                <h3 className="text-sm font-medium mt-4 mb-2">Hit-rate per modello</h3>
+                <ModelMetricsPanel models={modelMetrics} />
               </CardContent>
             </Card>
 
@@ -212,8 +245,32 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <CardContent>
                 <h2 className="text-sm font-semibold text-muted-foreground mb-3">Memoria</h2>
                 {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
+                <MemoryJournal entries={journalEntries} />
               </CardContent>
             </Card>
+
+            <Card>
+              <CardContent>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Decisioni</h2>
+                <DecisionsPanel decisions={decisions} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Osservazioni (news)</h2>
+                <ObservationsFeed observations={observations} />
+              </CardContent>
+            </Card>
+
+            {selId !== null && sel && (
+              <Card>
+                <CardContent>
+                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Market brief</h2>
+                  <MarketBriefPanel agentId={selId} brainVersion={sel.brain_version} />
+                </CardContent>
+              </Card>
+            )}
 
             {selId !== null && (
               <Card>

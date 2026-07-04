@@ -67,3 +67,28 @@ def test_retry_user_suffix_contains_schema_and_correction_ask():
     assert "boom" in s
     assert "not valid JSON" in s
     assert "corrected JSON" in s
+
+
+def test_prompt_includes_observations_when_present():
+    from datetime import datetime, timezone
+    from app.brain.context import ObservationView
+    ctx = build_context(
+        instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[], recent_events=[],
+        observations=[
+            ObservationView("CoinDesk", "Bitcoin ETF sees record inflows",
+                            datetime(2026, 7, 3, 10, 30, tzinfo=timezone.utc), ["BTC"]),
+            ObservationView("Cointelegraph", "Fed holds rates",
+                            datetime(2026, 7, 3, 9, 0, tzinfo=timezone.utc), []),
+        ],
+    )
+    _system, user = render_prompt(ctx)
+    assert "Recent crypto news" in user
+    assert "Bitcoin ETF sees record inflows" in user
+    assert "[BTC]" in user
+    assert "[market]" in user                      # no-symbol item labelled market-wide
+
+
+def test_prompt_omits_news_section_when_empty():
+    system, user = render_prompt(build_context(
+        instructions="x", cash_usd=Decimal("100"), holdings=[], universe=[], recent_events=[]))
+    assert "Recent crypto news" not in user         # empty → section fully omitted

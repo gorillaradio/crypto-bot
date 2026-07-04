@@ -22,6 +22,10 @@ const qty = (s: string) => {
   return n >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: 4 })
                 : n.toLocaleString("en-US", { maximumFractionDigits: 8 });
 };
+const pct = (s: string) => {
+  const n = Number(s);
+  return `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(2)}%`;
+};
 
 // Shared cell classes: original .ptable th/td — right-aligned, nowrap, tabular-nums mono
 const thBase = "text-right text-xs font-medium text-muted-foreground whitespace-nowrap py-0 pb-2 px-0";
@@ -46,6 +50,8 @@ export function PositionsTable({ positions }: { positions: Position[] }) {
           <TableHead className={thBase}>Quantità</TableHead>
           <TableHead className={thBase}>Prezzo medio</TableHead>
           <TableHead className={thBase}>Costo</TableHead>
+          <TableHead className={thBase}>Valore</TableHead>
+          <TableHead className={thBase}>P&L</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody className="[&_tr:last-child]:border-0">
@@ -61,6 +67,14 @@ export function PositionsTable({ positions }: { positions: Position[] }) {
             <TableCell className={tdBase}>{qty(p.quantity)}</TableCell>
             <TableCell className={tdBase}>{price(p.avg_price)}</TableCell>
             <TableCell className={tdBase}>{usd(p.cost_basis)}</TableCell>
+            <TableCell className={tdBase}>{p.market_value == null ? "—" : usd(p.market_value)}</TableCell>
+            <TableCell className={tdBase}>
+              {p.unrealized_pnl_pct == null ? "—" : (
+                <span className={Number(p.unrealized_pnl_pct) >= 0 ? "pos" : "neg"}>
+                  {pct(p.unrealized_pnl_pct)}
+                </span>
+              )}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>

@@ -41,24 +41,6 @@ def test_position_links_to_agent(db_session):
     assert pos in agent.positions
 
 
-def test_agent_memory_unique_per_section(db_session):
-    from app.db.models import AgentMemory
-    import pytest
-    from sqlalchemy.exc import IntegrityError
-    agent = Agent(name="M", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
-    db_session.add(agent); db_session.commit()
-    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bull"))
-    db_session.commit()
-    # a different section for the same agent is allowed
-    db_session.add(AgentMemory(agent_id=agent.id, section="trade_lessons", content="sold too early"))
-    db_session.commit()
-    # a duplicate (agent, section) violates the unique constraint
-    db_session.add(AgentMemory(agent_id=agent.id, section="coin_theses", content="BTC: bear"))
-    with pytest.raises(IntegrityError):
-        db_session.commit()
-
-
 def _mk_agent(session, **over):
     kw = dict(name="T", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
@@ -85,3 +67,125 @@ def test_position_breach_armed_defaults_true(db_session):
     p = Position(agent_id=a.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100"))
     db_session.add(p); db_session.commit()
     assert p.breach_armed is True
+
+
+def test_decision_record_persists_with_defaults(db_session):
+    from app.db.models import DecisionRecord
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="cyc1", kind="decision", trigger="schedule",
+                         system_prompt="sys", user_prompt="usr", raw_response="raw",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=123)
+    db_session.add(rec); db_session.commit(); db_session.refresh(rec)
+    assert rec.id is not None
+    assert rec.created_at is not None            # Python-side default applied on insert
+    assert rec.raw_response == "raw"
+
+
+def test_decision_record_allows_null_raw_parsed_and_model(db_session):
+    from app.db.models import DecisionRecord
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="cyc2", kind="reflection", trigger="breach",
+                         system_prompt="s", user_prompt="u", raw_response=None,
+                         parsed_output=None, parse_status="failed",
+                         model_provider="openrouter", model_name=None, latency_ms=0)
+    db_session.add(rec); db_session.commit()
+    assert rec.raw_response is None and rec.parsed_output is None and rec.model_name is None
+
+
+def test_benchmark_basis_persists(db_session):
+    from app.db.models import BenchmarkBasis
+    a = _mk_agent(db_session)
+    row = BenchmarkBasis(agent_id=a.id, universe_json='["BTCUSDT"]',
+                         start_prices_json='{"BTCUSDT": "100"}', initial_capital=Decimal("100"))
+    db_session.add(row); db_session.commit(); db_session.refresh(row)
+    assert row.id is not None and row.created_at is not None
+
+
+def test_benchmark_snapshot_persists(db_session):
+    from app.db.models import BenchmarkSnapshot
+    a = _mk_agent(db_session)
+    row = BenchmarkSnapshot(agent_id=a.id, kind="hodl_btc", equity_usd=Decimal("123.45"))
+    db_session.add(row); db_session.commit(); db_session.refresh(row)
+    assert row.id is not None and row.timestamp is not None
+    assert row.kind == "hodl_btc"
+
+
+def test_decision_score_persists_with_null_return(db_session):
+    from app.db.models import DecisionRecord, DecisionScore
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=1)
+    db_session.add(rec); db_session.commit()
+    score = DecisionScore(decision_record_id=rec.id, window="24h", n_actions=0, n_hits=0,
+                          avg_return_pct=None)
+    db_session.add(score); db_session.commit(); db_session.refresh(score)
+    assert score.id is not None and score.avg_return_pct is None
+
+
+def test_decision_score_unique_per_record_and_window(db_session):
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    from app.db.models import DecisionRecord, DecisionScore
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=1)
+    db_session.add(rec); db_session.commit()
+    db_session.add(DecisionScore(decision_record_id=rec.id, window="24h", n_actions=1, n_hits=1))
+    db_session.commit()
+    db_session.add(DecisionScore(decision_record_id=rec.id, window="24h", n_actions=2, n_hits=0))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_memory_entry_persists_with_defaults(db_session):
+    from app.db.models import MemoryEntry
+    agent = Agent(name="J", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    row = MemoryEntry(agent_id=agent.id, section="coin_theses", content="BTC: bull")
+    db_session.add(row); db_session.commit(); db_session.refresh(row)
+    assert row.id is not None and row.created_at is not None
+    assert row.active is True                       # default active
+    assert row.cycle_id is None                     # nullable
+
+
+def test_memory_entry_allows_many_rows_per_section(db_session):
+    from app.db.models import MemoryEntry
+    agent = Agent(name="J2", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    db_session.add_all([
+        MemoryEntry(agent_id=agent.id, section="coin_theses", content="BTC: bull", cycle_id="c1"),
+        MemoryEntry(agent_id=agent.id, section="coin_theses", content="ETH: flat", cycle_id="c1"),
+    ])
+    db_session.commit()                              # no unique constraint → both persist
+    assert db_session.query(MemoryEntry).filter_by(agent_id=agent.id, section="coin_theses").count() == 2
+
+
+def test_observation_persists_with_defaults(db_session):
+    from app.db.models import Observation
+    obs = Observation(source="CoinDesk", title="Bitcoin ETF sees record inflows",
+                      url="https://x/1", dedup_hash="h1",
+                      published_at=datetime(2026, 7, 3, 10, 30, tzinfo=timezone.utc))
+    db_session.add(obs); db_session.commit(); db_session.refresh(obs)
+    assert obs.id is not None and obs.created_at is not None
+    assert obs.kind == "news"            # default kind
+    assert obs.symbols_json == "[]"      # default: market-wide until tagged
+
+
+def test_observation_dedup_hash_is_unique(db_session):
+    from app.db.models import Observation
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    now = datetime(2026, 7, 3, 10, 30, tzinfo=timezone.utc)
+    db_session.add(Observation(source="CoinDesk", title="a", dedup_hash="dup", published_at=now))
+    db_session.commit()
+    db_session.add(Observation(source="Cointelegraph", title="b", dedup_hash="dup", published_at=now))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
