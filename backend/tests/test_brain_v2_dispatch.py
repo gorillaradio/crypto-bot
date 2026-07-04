@@ -19,7 +19,7 @@ def _agent(session, brain_version="v1"):
     return a
 
 
-def test_select_brain_by_version(db_session):
+async def test_select_brain_by_version(db_session):
     from app.brain import evaluate, evaluate_trader
     assert _select_brain(_agent(db_session, "v1")) is evaluate
     assert _select_brain(_agent(db_session, "v2")) is evaluate_trader
