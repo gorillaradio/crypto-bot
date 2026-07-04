@@ -108,17 +108,29 @@ def delete_agent(agent_id: int, session=Depends(session_dep), _: str = Depends(r
 
 
 @router.get("/agents/{agent_id}/positions", response_model=list[PositionOut])
-def get_positions(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
+async def get_positions(agent_id: int, session=Depends(session_dep),
+                        market=Depends(market_dep), _: str = Depends(require_viewer_or_admin)):
     rows = session.query(Position).filter_by(agent_id=agent_id).all()
-    return [
-        PositionOut(
-            symbol=p.symbol,
-            quantity=p.quantity,
-            avg_price=p.avg_price,
+    prices: dict[str, Decimal] = {}
+    if rows:
+        try:
+            snap = await market.get_universe_snapshot([p.symbol for p in rows])
+            prices = {c.symbol: c.price for c in snap}
+        except Exception:
+            prices = {}                    # market down → degrada a cost-only, mai 502
+    out = []
+    for p in rows:
+        last = prices.get(p.symbol)
+        pnl = (((last - p.avg_price) / p.avg_price) * Decimal("100")
+               if last is not None and p.avg_price else None)
+        out.append(PositionOut(
+            symbol=p.symbol, quantity=p.quantity, avg_price=p.avg_price,
             cost_basis=p.quantity * p.avg_price,
-        )
-        for p in rows
-    ]
+            last_price=last,
+            unrealized_pnl_pct=pnl,
+            market_value=(p.quantity * last) if last is not None else None,
+        ))
+    return out
 
 
 @router.get("/agents/{agent_id}/equity", response_model=list[EquityPoint])

@@ -98,10 +98,58 @@ def test_get_positions_returns_holdings_with_cost_basis(db_session):
                             quantity=Decimal("0.5"), avg_price=Decimal("100")))
     db_session.commit()
     client = _client(db_session)
+    _use_fake_market()                       # endpoint ora async + market_dep → stub, niente rete
     rows = client.get(f"/api/agents/{agent.id}/positions").json()
     assert len(rows) == 1
     assert rows[0]["symbol"] == "BTCUSDT"
     assert Decimal(rows[0]["cost_basis"]) == Decimal("50.0")
+
+
+def test_get_positions_includes_live_pnl(db_session):
+    agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+    db_session.add(agent); db_session.commit()
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("2"), avg_price=Decimal("100")))
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("BTCUSDT", Decimal("150"), Decimal("1"))])
+    row = client.get(f"/api/agents/{agent.id}/positions").json()[0]
+    assert Decimal(row["last_price"]) == Decimal("150")
+    assert Decimal(row["unrealized_pnl_pct"]) == Decimal("50")     # (150-100)/100*100
+    assert Decimal(row["market_value"]) == Decimal("300")          # 2*150
+
+
+def test_get_positions_pnl_none_when_symbol_missing(db_session):
+    agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+    db_session.add(agent); db_session.commit()
+    db_session.add(Position(agent_id=agent.id, symbol="GONEUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("BTCUSDT", Decimal("150"), Decimal("1"))])  # snapshot senza GONEUSDT
+    row = client.get(f"/api/agents/{agent.id}/positions").json()[0]
+    assert row["last_price"] is None
+    assert row["unrealized_pnl_pct"] is None
+    assert row["market_value"] is None
+    assert Decimal(row["cost_basis"]) == Decimal("100")
+
+
+def test_get_positions_degrades_to_cost_only_when_market_fails(db_session):
+    agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+    db_session.add(agent); db_session.commit()
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    client = _client(db_session)
+    app.dependency_overrides[routes.market_dep] = lambda: FailingMarketPreview()
+    resp = client.get(f"/api/agents/{agent.id}/positions")
+    assert resp.status_code == 200                    # NON 502: le posizioni sono un pannello centrale
+    row = resp.json()[0]
+    assert row["last_price"] is None
+    assert Decimal(row["cost_basis"]) == Decimal("100")
 
 
 def test_create_agent_persists_model_and_default_provider(db_session):

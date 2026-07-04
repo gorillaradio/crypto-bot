@@ -37,6 +37,9 @@ class PositionOut(BaseModel):
     quantity: Decimal
     avg_price: Decimal
     cost_basis: Decimal
+    last_price: Decimal | None = None
+    unrealized_pnl_pct: Decimal | None = None
+    market_value: Decimal | None = None
 
 
 class EquityPoint(BaseModel):
