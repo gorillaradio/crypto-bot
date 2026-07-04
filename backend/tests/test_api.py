@@ -546,3 +546,26 @@ def test_create_agent_accepts_brain_version_v2(db_session):
     resp = _mk(client, name="V2acc", brain_version="v2")
     assert resp.status_code == 201
     assert db_session.query(Agent).filter_by(name="V2acc").one().brain_version == "v2"
+
+
+def test_get_observations_returns_recent_newest_first(db_session):
+    from app.db.models import Observation
+    db_session.add_all([
+        Observation(source="CoinDesk", kind="news", title="old", url="http://a",
+                    symbols_json='["BTC"]', dedup_hash="h1",
+                    published_at=datetime(2026, 7, 1, tzinfo=timezone.utc)),
+        Observation(source="Cointelegraph", kind="news", title="new", url=None,
+                    symbols_json='[]', dedup_hash="h2",
+                    published_at=datetime(2026, 7, 3, tzinfo=timezone.utc)),
+    ])
+    db_session.commit()
+    client = _client(db_session)
+    body = client.get("/api/observations").json()
+    assert [o["title"] for o in body] == ["new", "old"]     # published_at desc
+    assert body[0]["url"] is None and body[0]["symbols"] == []
+    assert body[1]["source"] == "CoinDesk" and body[1]["symbols"] == ["BTC"]
+
+
+def test_get_observations_empty(db_session):
+    client = _client(db_session)
+    assert client.get("/api/observations").json() == []

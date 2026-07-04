@@ -82,6 +82,14 @@ class EventOut(BaseModel):
     cycle_id: str | None = None
 
 
+class ObservationOut(BaseModel):
+    source: str
+    title: str
+    url: str | None = None
+    published_at: datetime
+    symbols: list[str]
+
+
 class DecisionRecordOut(BaseModel):
     id: int
     cycle_id: str
