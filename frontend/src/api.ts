@@ -32,6 +32,9 @@ export type Position = {
   quantity: string;
   avg_price: string;
   cost_basis: string;
+  last_price: string | null;
+  unrealized_pnl_pct: string | null;
+  market_value: string | null;
 };
 export type AgentMemory = {
   coin_theses: string;
