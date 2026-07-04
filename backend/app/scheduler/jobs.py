@@ -5,7 +5,8 @@ from app.core.config import settings
 from app.db.base import get_session
 from app.db.models import Agent
 from app.market.binance import BinanceClient
-from app.agents.runtime import run_heartbeat, run_decision_guarded, universe_size
+from app.agents.runtime import (run_heartbeat, run_decision_guarded, universe_size,
+                                 run_analyst_cycle)
 from app.eval.scoring_job import score_matured_decisions
 from app.feeds.rss import RssFeedAdapter
 from app.feeds.ingest import ingest_observations
@@ -29,7 +30,14 @@ async def _decision_tick():
     market = BinanceClient()
     symbols_cache: dict[int, list[str]] = {}
     with get_session() as session:
-        for agent in session.query(Agent).filter_by(status="running").all():
+        agents = session.query(Agent).filter_by(status="running").all()
+        if any(a.brain_version == "v2" for a in agents):
+            try:
+                await run_analyst_cycle(session, market)
+            except Exception as exc:
+                logger.error("analyst cycle failed: %s", exc)
+                session.rollback()
+        for agent in agents:
             try:
                 n = universe_size(agent)
                 if n not in symbols_cache:
