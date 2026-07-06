@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { EquityChart } from "./components/EquityChart";
 import { BenchmarkChart } from "./components/BenchmarkChart";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { ModelMetricsPanel } from "./components/ModelMetricsPanel";
@@ -214,9 +213,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <CardContent>
                 <div className="flex flex-wrap items-baseline gap-3 mb-3">
                   <span className="text-xl font-medium"><Return pct={Number(sel.return_pct)} /></span>
-                  <span className="text-xs text-muted-foreground">equity vs investimento iniziale di $100</span>
+                  <span className="text-xs text-muted-foreground">agente vs benchmark · base $100</span>
                 </div>
-                <EquityChart data={equity} baseline={100} />
                 <BenchmarkChart equity={equity} benchmarks={benchmarks} />
                 <MetricsPanel metrics={metrics} />
                 <h3 className="text-sm font-medium mt-4 mb-2">Hit-rate per modello</h3>
