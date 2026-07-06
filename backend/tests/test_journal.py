@@ -106,3 +106,53 @@ def test_policy_row_for_ref_is_agent_scoped(db_session):
     assert journal.policy_row_for_ref(db_session, a1.id, f"P{row.id}") == row
     assert journal.policy_row_for_ref(db_session, a2.id, f"P{row.id}") is None
     assert journal.policy_row_for_ref(db_session, a1.id, "not-a-ref") is None
+
+
+def test_apply_memory_update_adds_policy(db_session):
+    from app.brain.memory import MemoryUpdate, PolicyEdit
+
+    a = _agent(db_session)
+    update = MemoryUpdate(policy_edits=[
+        PolicyEdit(op="add", text="Wait for fresh evidence.", reason="Churn hurt.")
+    ])
+
+    journal.apply_memory_update(db_session, a.id, update, cycle_id="c1")
+    db_session.commit()
+
+    rows = journal.active_entries(db_session, a.id, "self_policy")
+    assert [r.content for r in rows] == ["Wait for fresh evidence."]
+    assert rows[0].cycle_id == "c1"
+
+
+def test_apply_memory_update_retires_policy_without_deleting(db_session):
+    from app.brain.memory import MemoryUpdate, PolicyEdit
+
+    a = _agent(db_session)
+    journal.append_entries(db_session, a.id, "self_policy", ["old policy"])
+    db_session.commit()
+    row = journal.active_entries(db_session, a.id, "self_policy")[0]
+
+    update = MemoryUpdate(policy_edits=[
+        PolicyEdit(op="retire", policy_ref=f"P{row.id}", reason="No longer useful.")
+    ])
+    journal.apply_memory_update(db_session, a.id, update, cycle_id="c2")
+    db_session.commit()
+
+    assert journal.active_entries(db_session, a.id, "self_policy") == []
+    assert db_session.query(MemoryEntry).filter_by(id=row.id).one().active is False
+
+
+def test_apply_memory_update_rejects_invalid_policy_ref_without_partial_memory(db_session):
+    import pytest
+    from app.brain.memory import MemoryUpdate, PolicyEdit
+
+    a = _agent(db_session)
+    update = MemoryUpdate(coin_theses=["BTC: new"], policy_edits=[
+        PolicyEdit(op="retire", policy_ref="P999", reason="bad ref")
+    ])
+
+    with pytest.raises(ValueError):
+        journal.apply_memory_update(db_session, a.id, update, cycle_id="c3")
+
+    assert journal.active_entries(db_session, a.id, "coin_theses") == []
+    assert journal.active_entries(db_session, a.id, "self_policy") == []

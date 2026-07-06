@@ -2,8 +2,9 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal
 from time import perf_counter
+from typing import Literal
 from pydantic import BaseModel
-from app.brain.context import MemoryView
+from app.brain.context import MemoryView, PolicyMemoryView
 
 
 @dataclass
@@ -15,10 +16,18 @@ class ClosedTrade:
     realized_pnl_pct: Decimal
 
 
+class PolicyEdit(BaseModel):
+    op: Literal["add", "retire", "replace"]
+    policy_ref: str | None = None
+    text: str = ""
+    reason: str = ""
+
+
 class MemoryUpdate(BaseModel):
     coin_theses: list[str] = []
     trade_lessons: list[str] = []
     strategy_notes: list[str] = []
+    policy_edits: list[PolicyEdit] = []
 
 
 _REFLECT_SYSTEM = """You are the reflective memory of an autonomous paper-trading agent.
@@ -26,7 +35,9 @@ The agent just closed one or more trades. Add NEW journal entries capturing what
 Output ONLY a JSON object of this exact shape:
 {{"coin_theses": ["<SYMBOL: one-line updated view>", ...],
   "trade_lessons": ["<one-line lesson from a closed trade>", ...],
-  "strategy_notes": ["<one-line observation about the agent's own behaviour>", ...]}}
+  "strategy_notes": ["<one-line observation about the agent's own behaviour>", ...],
+  "policy_edits": [{{"op": "add"|"retire"|"replace", "policy_ref": "<P123 or null>",
+                     "text": "<new policy text or empty>", "reason": "<short factual reason>"}}]}}
 Output ONLY genuinely new entries prompted by these outcomes. Do NOT repeat entries already present
 in the current memory shown below; return an empty list for a section that has nothing new.
 One short line per item. Output JSON only, no prose.
@@ -35,8 +46,15 @@ The agent's operator instructions:
 {instructions}"""
 
 
-def build_reflection_prompt(memory: MemoryView, closed: list[ClosedTrade],
-                            held_symbols: list[str], instructions: str) -> tuple[str, str]:
+def build_reflection_prompt(memory: MemoryView, policy: PolicyMemoryView | list[ClosedTrade],
+                            closed: list[ClosedTrade] | list[str],
+                            held_symbols: list[str] | str,
+                            instructions: str | None = None) -> tuple[str, str]:
+    if isinstance(policy, list):
+        instructions = str(held_symbols)
+        held_symbols = closed
+        closed = policy
+        policy = PolicyMemoryView()
     system = _REFLECT_SYSTEM.format(instructions=instructions or "(none provided)")
     lines = ["Closed trades this cycle:"]
     for t in closed:
@@ -48,6 +66,11 @@ def build_reflection_prompt(memory: MemoryView, closed: list[ClosedTrade],
                         ("Strategy notes", memory.strategy_notes)):
         lines.append(f"{label}:")
         lines += [f"  - {l}" for l in text.splitlines() if l.strip()] or ["  (none)"]
+    lines += ["", "Current self-policy:"]
+    if policy.active:
+        lines += [f"  - {p.ref}: {p.content}" for p in policy.active]
+    else:
+        lines += ["  (none)"]
     return system, "\n".join(lines)
 
 
@@ -65,9 +88,16 @@ class ReflectionResult:
     latency_ms: int = 0
 
 
-def run_reflection_result(memory: MemoryView, closed: list[ClosedTrade],
-                          held_symbols: list[str], instructions: str, adapter) -> ReflectionResult:
-    system, user = build_reflection_prompt(memory, closed, held_symbols, instructions)
+def run_reflection_result(memory: MemoryView, policy: PolicyMemoryView | list[ClosedTrade],
+                          closed: list[ClosedTrade] | list[str],
+                          held_symbols: list[str] | str, instructions=None, adapter=None) -> ReflectionResult:
+    if isinstance(policy, list):
+        adapter = instructions
+        instructions = held_symbols
+        held_symbols = closed
+        closed = policy
+        policy = PolicyMemoryView()
+    system, user = build_reflection_prompt(memory, policy, closed, held_symbols, instructions)
     t0 = perf_counter()
     try:
         raw = adapter.complete_json(system, user)

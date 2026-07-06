@@ -1,5 +1,9 @@
 from app.db.models import MemoryEntry
 from app.brain.context import MemoryView, PolicyLine, PolicyMemoryView
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.brain.memory import MemoryUpdate, PolicyEdit
 
 NARRATIVE_SECTIONS = ("coin_theses", "trade_lessons", "strategy_notes")
 SECTIONS = (*NARRATIVE_SECTIONS, "self_policy")
@@ -74,6 +78,54 @@ def compact_view(session, agent_id: int) -> MemoryView:
     return MemoryView(coin_theses=text("coin_theses"),
                       trade_lessons=text("trade_lessons"),
                       strategy_notes=text("strategy_notes"))
+
+
+def _validate_policy_edits(session, agent_id: int, edits: list["PolicyEdit"]) -> None:
+    active_count_now = active_count(session, agent_id, "self_policy")
+    net_new = 0
+    for edit in edits:
+        if edit.op == "add":
+            if not edit.text.strip():
+                raise ValueError("policy add requires text")
+            net_new += 1
+        elif edit.op == "retire":
+            if not edit.policy_ref or policy_row_for_ref(session, agent_id, edit.policy_ref) is None:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            net_new -= 1
+        elif edit.op == "replace":
+            if not edit.policy_ref or policy_row_for_ref(session, agent_id, edit.policy_ref) is None:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            if not edit.text.strip():
+                raise ValueError("policy replace requires text")
+        else:
+            raise ValueError(f"invalid policy op: {edit.op}")
+    if active_count_now + net_new > SECTION_CAPS["self_policy"]:
+        raise ValueError("self_policy cap exceeded")
+
+
+def _apply_policy_edits(session, agent_id: int, edits: list["PolicyEdit"], cycle_id: str | None) -> None:
+    for edit in edits:
+        if edit.op == "add":
+            append_entries(session, agent_id, "self_policy", [edit.text], cycle_id=cycle_id)
+        elif edit.op == "retire":
+            row = policy_row_for_ref(session, agent_id, edit.policy_ref or "")
+            if row is None:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            row.active = False
+        elif edit.op == "replace":
+            row = policy_row_for_ref(session, agent_id, edit.policy_ref or "")
+            if row is None:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            row.active = False
+            append_entries(session, agent_id, "self_policy", [edit.text], cycle_id=cycle_id)
+
+
+def apply_memory_update(session, agent_id: int, update: "MemoryUpdate",
+                        cycle_id: str | None = None) -> None:
+    _validate_policy_edits(session, agent_id, update.policy_edits)
+    for section in NARRATIVE_SECTIONS:
+        append_entries(session, agent_id, section, getattr(update, section), cycle_id=cycle_id)
+    _apply_policy_edits(session, agent_id, update.policy_edits, cycle_id)
 
 
 def apply_distillation(session, agent_id: int, section: str, compacted: list[str],
