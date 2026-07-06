@@ -69,11 +69,14 @@ class DecisionContext:
     positions: list[PositionView]
     recent_events: list[str]
     memory: MemoryView
+    policy: PolicyMemoryView
     wake_reason: str | None = None
     brief: "MarketBriefView | None" = None
+    brief_unavailable_reason: str | None = None
 
 
-def build_context(*, instructions, cash_usd, holdings, recent_events, memory=None, brief=None, wake_reason=None) -> DecisionContext:
+def build_context(*, instructions, cash_usd, holdings, recent_events, memory=None, policy=None,
+                  brief=None, wake_reason=None, brief_unavailable_reason=None) -> DecisionContext:
     positions: list[PositionView] = []
     equity = cash_usd
     for symbol, quantity, avg_price, last_price in holdings:
@@ -83,5 +86,7 @@ def build_context(*, instructions, cash_usd, holdings, recent_events, memory=Non
     return DecisionContext(
         instructions=instructions, cash_usd=cash_usd, equity_usd=equity,
         positions=positions, recent_events=recent_events,
-        memory=memory or MemoryView(), brief=brief, wake_reason=wake_reason,
+        memory=memory or MemoryView(), policy=policy or PolicyMemoryView(),
+        brief=brief, wake_reason=wake_reason,
+        brief_unavailable_reason=brief_unavailable_reason,
     )

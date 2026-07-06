@@ -196,6 +196,27 @@ async def test_llm_path_executes_buy_with_guardrails(db_session):
     assert "testing" in ev.message
 
 
+async def test_policy_violation_disclosure_does_not_block_valid_buy(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[
+        Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"),
+               rationale="override",
+               policy_refs=["P999"], policy_alignment="violates",
+               override_reason="fresh catalyst")
+    ], note="buy anyway")
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+
+    assert db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").count() == 1
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="decision").one()
+    assert '"policy_refs":["P999"]' in rec.parsed_output
+    assert '"policy_alignment":"violates"' in rec.parsed_output
+    assert '"override_reason":"fresh catalyst"' in rec.parsed_output
+
+
 async def test_llm_all_in_buy_clamps_for_fee_and_executes(db_session):
     """An all-in BUY (usd_amount == cash) must succeed, not error out: the runtime
     clamps the requested spend to cash/(1+fee_rate) so the fee fits on top, opening

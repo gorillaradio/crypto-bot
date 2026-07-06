@@ -46,6 +46,25 @@ def test_trader_prompt_surfaces_wake_reason():
     assert "SOLUSDT news: hack" in user
 
 
+def test_trader_prompt_renders_self_policy_separately():
+    from app.brain.context import PolicyLine, PolicyMemoryView
+
+    ctx = build_context(instructions="favor blue chips", cash_usd=Decimal("100"),
+                        holdings=[], recent_events=[], brief=_brief(),
+                        policy=PolicyMemoryView(active=[
+                            PolicyLine("P7", "Do not re-enter losers without fresh evidence.")
+                        ]))
+
+    system, user = render_trader_prompt(ctx)
+
+    assert "Your self-policy:" in user
+    assert "P7: Do not re-enter losers without fresh evidence." in user
+    assert "policy_refs" in system
+    assert "policy_alignment" in system
+    assert "override_reason" in system
+    assert "not server-side strategic enforcement" in system
+
+
 def test_evaluate_trader_parses_decision():
     r = evaluate_trader(_ctx(_brief()),
                         _Adapter(['{"actions":[{"type":"HOLD","rationale":"wait"}],"note":"n"}']))

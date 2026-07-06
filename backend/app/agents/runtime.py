@@ -43,10 +43,12 @@ async def assemble_trader_context(session, agent, market, symbols, brief_row, *,
         session.query(Event).filter_by(agent_id=agent.id)
         .order_by(Event.timestamp.desc()).limit(10).all())]
     memory = journal.compact_view(session, agent.id)
+    policy = journal.policy_view(session, agent.id)
     brief = filter_brief_for(brief_row, symbols) if brief_row is not None else None
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                          holdings=holdings, recent_events=recent,
-                         memory=memory, brief=brief, wake_reason=wake_reason)
+                         memory=memory, policy=policy, brief=brief,
+                         wake_reason=wake_reason)
 
 
 async def _position_move(market, symbol):

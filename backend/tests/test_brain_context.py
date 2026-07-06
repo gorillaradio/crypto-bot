@@ -18,6 +18,17 @@ def test_build_context_defaults_memory_empty():
     assert ctx.memory.coin_theses == ""
 
 
+def test_build_context_carries_policy_view():
+    from app.brain.context import PolicyLine, PolicyMemoryView
+
+    policy = PolicyMemoryView(active=[PolicyLine("P10", "Wait for fresh evidence.")])
+    ctx = build_context(instructions="", cash_usd=Decimal("100"),
+                        holdings=[], recent_events=[], policy=policy)
+
+    assert ctx.policy.active[0].ref == "P10"
+    assert ctx.policy.active[0].content == "Wait for fresh evidence."
+
+
 def test_build_context_computes_equity_and_pnl():
     ctx = build_context(
         instructions="be bold",

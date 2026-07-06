@@ -10,7 +10,11 @@ Your operator's instructions:
 Decide what to do this cycle. Respond with ONLY a JSON object of this exact shape:
 {{"actions": [{{"type": "BUY"|"SELL"|"HOLD", "symbol": "<SYMBOL or null>",
   "usd_amount": "<USD to spend on BUY, or null>", "fraction": "<0-1 of position to SELL, or null>",
-  "rationale": "<one short sentence>"}}], "note": "<one-line thesis for this cycle>"}}
+  "rationale": "<one short sentence>",
+  "policy_refs": ["<P123>"],
+  "policy_alignment": "follows"|"violates"|"unrelated",
+  "override_reason": "<required when policy_alignment is violates, otherwise empty>"}}],
+  "note": "<one-line thesis for this cycle>"}}
 Use BUY with usd_amount to open/add, SELL with fraction (1 = all) to reduce/close, HOLD to do nothing.
 Numbers must be JSON strings. Output JSON only, no prose."""
 
@@ -59,6 +63,15 @@ def render_trader_prompt(ctx: DecisionContext) -> tuple[str, str]:
     if mem_lines:
         system = system + "\n\nYour memory below is your own prior reflection on past trades — treat it as your evolving view."
         lines += ["", "Your memory (you wrote this; update your behaviour accordingly):"] + mem_lines
+    if ctx.policy.active:
+        system = system + (
+            "\n\nYour self-policy below is your own prior reflection. "
+            "Account for it in each action using policy_refs, policy_alignment, and override_reason. "
+            "These fields are disclosures for later reflection, not server-side strategic enforcement."
+        )
+        lines += ["", "Your self-policy:"]
+        for p in ctx.policy.active:
+            lines.append(f"  - {p.ref}: {p.content}")
 
     return system, "\n".join(lines)
 
