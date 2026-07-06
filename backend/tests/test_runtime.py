@@ -44,10 +44,12 @@ def _stub_brief_bootstrap(monkeypatch):
     """v2-only decision path: build_trader_context resolves a brief via get_or_bootstrap_brief,
     which cold-starts the analyst (needs get_top_symbols + a live adapter) when the fresh test DB
     has no brief. These decision-execution tests fake the trader decision and don't exercise the
-    brief, so stub the resolver to None (the trader renders brief-less)."""
+    brief, so stub the resolver to a no-brief lookup (the trader renders brief-less)."""
     from app.agents import runtime as _runtime
+    from app.brain.brief_store import BriefLookup
     from unittest.mock import AsyncMock
-    monkeypatch.setattr(_runtime, "get_or_bootstrap_brief", AsyncMock(return_value=None))
+    monkeypatch.setattr(_runtime, "get_or_bootstrap_brief",
+                        AsyncMock(return_value=BriefLookup(row=None, unavailable_reason=None, has_valid=False)))
 
 
 def _agent(session, cash="100"):
