@@ -83,6 +83,18 @@ async def test_heartbeat_writes_equity_snapshot(db_session):
     assert snap.equity_usd == Decimal("100")  # solo cash, nessuna posizione
 
 
+async def test_heartbeat_equity_and_benchmark_share_timestamp(db_session):
+    """Equity e benchmark dello stesso beat devono avere timestamp identico: il grafico
+    li fonde per timestamp, se differiscono ogni serie resta a punti isolati e non si disegna."""
+    agent = _agent(db_session, "100")
+    market = FakeMarketHB(price=Decimal("100"))
+    await run_heartbeat(db_session, agent, market)
+    equity = db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).one()
+    benchmarks = db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).all()
+    assert benchmarks, "il beat deve scrivere i benchmark"
+    assert all(b.timestamp == equity.timestamp for b in benchmarks)
+
+
 async def test_heartbeat_within_band_saves_equity_no_trigger(db_session):
     agent = _armed_agent(db_session)
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",

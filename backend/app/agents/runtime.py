@@ -119,10 +119,11 @@ async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> Non
             if pos.move_armed and fresh_move is None:
                 fresh_move = (pos.symbol, change)
     equity = agent.cash_usd + positions_value
-    session.add(EquitySnapshot(agent_id=agent.id, equity_usd=equity))
+    ts = datetime.now(timezone.utc)                # one beat timestamp shared by equity + benchmarks
+    session.add(EquitySnapshot(agent_id=agent.id, equity_usd=equity, timestamp=ts))
     session.commit()
 
-    await record_benchmark_snapshot(session, agent, market)
+    await record_benchmark_snapshot(session, agent, market, ts)
 
     news_hit = fresh_news_for(session, agent)
     if fresh_breach is None and fresh_move is None and news_hit is None:
@@ -317,10 +318,11 @@ def _record_llm_call(session, agent, cycle_id, kind, trigger, *,
         latency_ms=latency_ms))
 
 
-async def record_benchmark_snapshot(session, agent, market) -> None:
-    """Write the ghost-benchmark equities for this beat. Self-isolating: on any error
-    it rolls back its own work and returns — benchmarks are telemetry, never a reason
-    to break the heartbeat."""
+async def record_benchmark_snapshot(session, agent, market, ts) -> None:
+    """Write the ghost-benchmark equities for this beat, stamped with the beat's shared
+    `ts` (same as the EquitySnapshot) so equity + benchmarks land on one chart row.
+    Self-isolating: on any error it rolls back its own work and returns — benchmarks are
+    telemetry, never a reason to break the heartbeat."""
     try:
         basis = session.query(BenchmarkBasis).filter_by(agent_id=agent.id).first()
         if basis is None:
@@ -343,7 +345,6 @@ async def record_benchmark_snapshot(session, agent, market) -> None:
         equities = compute_benchmark_equities(
             initial=basis.initial_capital, universe=universe,
             start_prices=start_prices, now_prices=now_prices, seed=agent.id)
-        ts = datetime.now(timezone.utc)
         for kind, equity in equities.items():
             session.add(BenchmarkSnapshot(agent_id=agent.id, kind=kind, equity_usd=equity, timestamp=ts))
         session.commit()
