@@ -65,3 +65,44 @@ def test_apply_distillation_supersedes_old_and_inserts_compacted(db_session):
     superseded = db_session.query(MemoryEntry).filter_by(
         agent_id=a.id, section="strategy_notes", active=False).count()
     assert superseded == 3                                           # nothing deleted, old rows kept
+
+
+def test_policy_view_returns_active_policy_refs(db_session):
+    a = _agent(db_session)
+    journal.append_entries(db_session, a.id, "self_policy",
+                           ["Do not re-enter recent losers.", "Require fresh evidence for overrides."])
+    db_session.commit()
+
+    view = journal.policy_view(db_session, a.id)
+
+    rows = journal.active_entries(db_session, a.id, "self_policy")
+    assert [p.ref for p in view.active] == [f"P{rows[0].id}", f"P{rows[1].id}"]
+    assert [p.content for p in view.active] == [
+        "Do not re-enter recent losers.",
+        "Require fresh evidence for overrides.",
+    ]
+
+
+def test_policy_view_excludes_inactive_rows(db_session):
+    a = _agent(db_session)
+    journal.append_entries(db_session, a.id, "self_policy", ["active", "retired"])
+    db_session.commit()
+    rows = journal.active_entries(db_session, a.id, "self_policy")
+    rows[1].active = False
+    db_session.commit()
+
+    view = journal.policy_view(db_session, a.id)
+
+    assert [(p.ref, p.content) for p in view.active] == [(f"P{rows[0].id}", "active")]
+
+
+def test_policy_row_for_ref_is_agent_scoped(db_session):
+    a1 = _agent(db_session)
+    a2 = _agent(db_session)
+    journal.append_entries(db_session, a1.id, "self_policy", ["a1 policy"])
+    db_session.commit()
+    row = journal.active_entries(db_session, a1.id, "self_policy")[0]
+
+    assert journal.policy_row_for_ref(db_session, a1.id, f"P{row.id}") == row
+    assert journal.policy_row_for_ref(db_session, a2.id, f"P{row.id}") is None
+    assert journal.policy_row_for_ref(db_session, a1.id, "not-a-ref") is None

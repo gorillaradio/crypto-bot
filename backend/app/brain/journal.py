@@ -1,8 +1,9 @@
 from app.db.models import MemoryEntry
-from app.brain.context import MemoryView
+from app.brain.context import MemoryView, PolicyLine, PolicyMemoryView
 
-SECTIONS = ("coin_theses", "trade_lessons", "strategy_notes")
-SECTION_CAPS = {"coin_theses": 8, "trade_lessons": 10, "strategy_notes": 5}
+NARRATIVE_SECTIONS = ("coin_theses", "trade_lessons", "strategy_notes")
+SECTIONS = (*NARRATIVE_SECTIONS, "self_policy")
+SECTION_CAPS = {"coin_theses": 8, "trade_lessons": 10, "strategy_notes": 5, "self_policy": 8}
 
 
 def _active_q(session, agent_id: int, section: str):
@@ -33,6 +34,35 @@ def active_entries(session, agent_id: int, section: str) -> list[MemoryEntry]:
 
 def active_count(session, agent_id: int, section: str) -> int:
     return _active_q(session, agent_id, section).count()
+
+
+def policy_ref(row: MemoryEntry) -> str:
+    return f"P{row.id}"
+
+
+def _policy_id(ref: str) -> int | None:
+    if not ref or not ref.startswith("P"):
+        return None
+    try:
+        return int(ref[1:])
+    except ValueError:
+        return None
+
+
+def policy_row_for_ref(session, agent_id: int, ref: str) -> MemoryEntry | None:
+    row_id = _policy_id(ref)
+    if row_id is None:
+        return None
+    return (session.query(MemoryEntry)
+            .filter_by(id=row_id, agent_id=agent_id, section="self_policy", active=True)
+            .first())
+
+
+def policy_view(session, agent_id: int) -> PolicyMemoryView:
+    rows = _active_q(session, agent_id, "self_policy").all()
+    cap = SECTION_CAPS["self_policy"]
+    recent = rows[-cap:] if len(rows) > cap else rows
+    return PolicyMemoryView(active=[PolicyLine(policy_ref(row), row.content) for row in recent])
 
 
 def compact_view(session, agent_id: int) -> MemoryView:

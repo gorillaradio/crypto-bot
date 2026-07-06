@@ -27,6 +27,17 @@ class MemoryView:
 
 
 @dataclass
+class PolicyLine:
+    ref: str
+    content: str
+
+
+@dataclass
+class PolicyMemoryView:
+    active: list[PolicyLine] = field(default_factory=list)
+
+
+@dataclass
 class ObservationView:
     source: str
     title: str

@@ -275,12 +275,12 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                                             if rr.parse_status == "ok" else None),
                              parse_status=rr.parse_status, latency_ms=rr.latency_ms)
             if rr.parse_status == "ok":
-                for section in journal.SECTIONS:
+                for section in journal.NARRATIVE_SECTIONS:
                     journal.append_entries(session, agent.id, section,
                                            getattr(rr.entries, section), cycle_id=cycle_id)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="memoria aggiornata dopo trade chiuso"))
-                for section in journal.SECTIONS:
+                for section in journal.NARRATIVE_SECTIONS:
                     if journal.active_count(session, agent.id, section) > journal.SECTION_CAPS[section]:
                         current = [e.content for e in journal.active_entries(session, agent.id, section)]
                         dres = distill(section, current, journal.SECTION_CAPS[section],
