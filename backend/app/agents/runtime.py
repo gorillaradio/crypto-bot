@@ -9,7 +9,12 @@ from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
 from app.brain import evaluate_trader
 from app.brain.analyst import AnalystContext, run_analyst
-from app.brain.brief_store import persist_brief, latest_valid_brief, filter_brief_for
+from app.brain.brief_store import (
+    BriefLookup,
+    brief_lookup_for_prompt,
+    filter_brief_for,
+    persist_brief,
+)
 from app.brain.context import build_context
 from app.brain import journal
 from app.brain.memory import run_reflection_result, run_distillation_result, ClosedTrade
@@ -27,12 +32,12 @@ def universe_size(agent) -> int:
 async def build_trader_context(session, agent, market, symbols, *, wake_reason=None):
     """v2 context: brief (bootstrap se assente) + posizioni live + memoria + eventi + wake_reason.
     NON scarica lo snapshot universo (l'analyst ha già sintetizzato il mercato una volta, condiviso)."""
-    brief_row = await get_or_bootstrap_brief(session, market)
-    return await assemble_trader_context(session, agent, market, symbols, brief_row,
+    brief_lookup = await get_or_bootstrap_brief(session, market)
+    return await assemble_trader_context(session, agent, market, symbols, brief_lookup,
                                          wake_reason=wake_reason)
 
 
-async def assemble_trader_context(session, agent, market, symbols, brief_row, *, wake_reason=None):
+async def assemble_trader_context(session, agent, market, symbols, brief_lookup, *, wake_reason=None):
     """Assembla il DecisionContext del trader da un brief_row GIÀ risolto (nessun bootstrap qui).
     Condiviso dal ciclo di decisione (brief con bootstrap) e dal monitor prompt (solo latest, no LLM)."""
     holdings = []
@@ -44,11 +49,12 @@ async def assemble_trader_context(session, agent, market, symbols, brief_row, *,
         .order_by(Event.timestamp.desc()).limit(10).all())]
     memory = journal.compact_view(session, agent.id)
     policy = journal.policy_view(session, agent.id)
-    brief = filter_brief_for(brief_row, symbols) if brief_row is not None else None
+    brief = filter_brief_for(brief_lookup.row, symbols) if brief_lookup.row is not None else None
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                          holdings=holdings, recent_events=recent,
                          memory=memory, policy=policy, brief=brief,
-                         wake_reason=wake_reason)
+                         wake_reason=wake_reason,
+                         brief_unavailable_reason=brief_lookup.unavailable_reason)
 
 
 async def _position_move(market, symbol):
@@ -79,15 +85,16 @@ async def run_analyst_cycle(session, market, *, run=run_analyst, adapter=None):
     return row if result.parse_status != "failed" else None
 
 
-async def get_or_bootstrap_brief(session, market, *, run_cycle=None):
+async def get_or_bootstrap_brief(session, market, *, run_cycle=None, now=None) -> BriefLookup:
     """Latest valid brief, or bootstrap one via run_analyst_cycle if none exists yet (cold start).
     The only analyst run outside the hourly cycle."""
-    brief = latest_valid_brief(session)
-    if brief is not None:
-        return brief
+    lookup = brief_lookup_for_prompt(session, now=now)
+    if lookup.row is not None or lookup.has_valid:
+        return lookup
     if run_cycle is None:
         run_cycle = run_analyst_cycle
-    return await run_cycle(session, market)
+    await run_cycle(session, market)
+    return brief_lookup_for_prompt(session, now=now)
 
 
 async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:

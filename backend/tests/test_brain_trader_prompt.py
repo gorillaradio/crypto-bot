@@ -38,6 +38,17 @@ def test_trader_prompt_handles_missing_brief():
     assert "unavailable" in user.lower()
 
 
+def test_trader_prompt_reports_stale_brief_reason():
+    ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
+                        recent_events=[],
+                        brief=None,
+                        brief_unavailable_reason="latest valid brief is stale by 124m")
+
+    _system, user = render_trader_prompt(ctx)
+
+    assert "Market brief: unavailable this cycle; latest valid brief is stale by 124m" in user
+
+
 def test_trader_prompt_surfaces_wake_reason():
     ctx = build_context(instructions="", cash_usd=Decimal("100"), holdings=[],
                         recent_events=[], brief=_brief(),

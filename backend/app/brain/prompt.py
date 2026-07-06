@@ -48,7 +48,8 @@ def render_trader_prompt(ctx: DecisionContext) -> tuple[str, str]:
         if b.key_news:
             lines += ["", "Market news:"] + [f"  - {n}" for n in b.key_news]
     else:
-        lines += ["", "Market brief: (unavailable this cycle)"]
+        reason = f"; {ctx.brief_unavailable_reason}" if ctx.brief_unavailable_reason else ""
+        lines += ["", f"Market brief: unavailable this cycle{reason}"]
 
     # Blocco memoria: stesso formato usato altrove nel prompt. ~10 righe.
     mem = ctx.memory
