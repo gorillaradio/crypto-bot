@@ -156,3 +156,45 @@ def test_apply_memory_update_rejects_invalid_policy_ref_without_partial_memory(d
 
     assert journal.active_entries(db_session, a.id, "coin_theses") == []
     assert journal.active_entries(db_session, a.id, "self_policy") == []
+
+
+def test_apply_memory_update_rejects_duplicate_policy_retire_without_partial_memory(db_session):
+    import pytest
+    from app.brain.memory import MemoryUpdate, PolicyEdit
+
+    a = _agent(db_session)
+    journal.append_entries(db_session, a.id, "self_policy", ["old policy"])
+    db_session.commit()
+    row = journal.active_entries(db_session, a.id, "self_policy")[0]
+
+    update = MemoryUpdate(coin_theses=["BTC: new"], policy_edits=[
+        PolicyEdit(op="retire", policy_ref=f"P{row.id}", reason="first retire"),
+        PolicyEdit(op="retire", policy_ref=f"P{row.id}", reason="duplicate retire"),
+    ])
+
+    with pytest.raises(ValueError):
+        journal.apply_memory_update(db_session, a.id, update, cycle_id="c4")
+
+    assert journal.active_entries(db_session, a.id, "coin_theses") == []
+    assert [r.content for r in journal.active_entries(db_session, a.id, "self_policy")] == ["old policy"]
+
+
+def test_apply_memory_update_replaces_policy_in_place(db_session):
+    from app.brain.memory import MemoryUpdate, PolicyEdit
+
+    a = _agent(db_session)
+    journal.append_entries(db_session, a.id, "self_policy", ["old policy"])
+    db_session.commit()
+    old_row = journal.active_entries(db_session, a.id, "self_policy")[0]
+
+    update = MemoryUpdate(policy_edits=[
+        PolicyEdit(op="replace", policy_ref=f"P{old_row.id}", text="new policy", reason="Sharper rule.")
+    ])
+
+    journal.apply_memory_update(db_session, a.id, update, cycle_id="c5")
+    db_session.commit()
+
+    assert db_session.query(MemoryEntry).filter_by(id=old_row.id).one().active is False
+    active_rows = journal.active_entries(db_session, a.id, "self_policy")
+    assert [r.content for r in active_rows] == ["new policy"]
+    assert active_rows[0].cycle_id == "c5"

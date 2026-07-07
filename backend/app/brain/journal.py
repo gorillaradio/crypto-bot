@@ -81,25 +81,28 @@ def compact_view(session, agent_id: int) -> MemoryView:
 
 
 def _validate_policy_edits(session, agent_id: int, edits: list["PolicyEdit"]) -> None:
-    active_count_now = active_count(session, agent_id, "self_policy")
-    net_new = 0
+    active_rows = active_entries(session, agent_id, "self_policy")
+    active_refs = {policy_ref(row) for row in active_rows}
+    projected_count = len(active_rows)
     for edit in edits:
         if edit.op == "add":
             if not edit.text.strip():
                 raise ValueError("policy add requires text")
-            net_new += 1
+            projected_count += 1
         elif edit.op == "retire":
-            if not edit.policy_ref or policy_row_for_ref(session, agent_id, edit.policy_ref) is None:
+            if not edit.policy_ref or edit.policy_ref not in active_refs:
                 raise ValueError(f"invalid policy ref: {edit.policy_ref}")
-            net_new -= 1
+            active_refs.remove(edit.policy_ref)
+            projected_count -= 1
         elif edit.op == "replace":
-            if not edit.policy_ref or policy_row_for_ref(session, agent_id, edit.policy_ref) is None:
+            if not edit.policy_ref or edit.policy_ref not in active_refs:
                 raise ValueError(f"invalid policy ref: {edit.policy_ref}")
             if not edit.text.strip():
                 raise ValueError("policy replace requires text")
+            active_refs.remove(edit.policy_ref)
         else:
             raise ValueError(f"invalid policy op: {edit.op}")
-    if active_count_now + net_new > SECTION_CAPS["self_policy"]:
+    if projected_count > SECTION_CAPS["self_policy"]:
         raise ValueError("self_policy cap exceeded")
 
 

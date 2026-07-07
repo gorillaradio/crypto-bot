@@ -22,7 +22,9 @@ async def render_agent_prompts_preview(session, agent, market) -> dict:
                           avg_cost=p.avg_price, realized_pnl_pct=p.unrealized_pnl_pct)
               for p in ctx.positions]
     held_symbols = [p.symbol for p in ctx.positions]
-    r_system, r_user = build_reflection_prompt(ctx.memory, closed, held_symbols, agent.instructions)
+    r_system, r_user = build_reflection_prompt(
+        ctx.memory, ctx.policy, closed, held_symbols, agent.instructions
+    )
     refl_note = ("Anteprima: le posizioni attuali come se chiuse ora." if closed
                  else "Nessuna posizione aperta: mostrato a scopo strutturale "
                       "(la reflection scatta alla chiusura di un trade).")
