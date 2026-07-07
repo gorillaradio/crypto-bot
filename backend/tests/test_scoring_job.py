@@ -95,3 +95,20 @@ async def test_scoring_handles_naive_created_at_from_sqlite(db_session):
     n = await score_matured_decisions(db_session, FakePriceMarket({}, default=Decimal("100")),
                                       datetime.now(timezone.utc))
     assert n == 2                                  # both windows scored, no TypeError from naive compare
+
+
+async def test_scoring_ignores_policy_accountability_fields(db_session):
+    agent = _agent(db_session)
+    made = datetime.now(timezone.utc) - timedelta(days=8)
+    rec = _decision(
+        db_session, agent.id, made,
+        actions_json=('{"actions":[{"type":"BUY","symbol":"BTCUSDT",'
+                      '"policy_refs":["P1"],"policy_alignment":"violates",'
+                      '"override_reason":"fresh catalyst"}]}')
+    )
+
+    n = await score_matured_decisions(db_session, FakePriceMarket({}, default=Decimal("100")),
+                                      datetime.now(timezone.utc))
+
+    assert n == 2
+    assert db_session.query(DecisionScore).filter_by(decision_record_id=rec.id).count() == 2

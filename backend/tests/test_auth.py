@@ -140,3 +140,7 @@ def test_memory_journal_requires_a_session(client, db_session):
     db_session.add(ShareLink(token="v6")); db_session.commit()
     client.post("/api/auth/viewer", json={"token": "v6"})
     assert client.get("/api/agents/1/memory/journal").status_code == 200   # viewer can read
+
+
+def test_no_policy_mutation_endpoint_exists(client):
+    assert client.post("/api/agents/1/memory/policy", json={}).status_code == 404
