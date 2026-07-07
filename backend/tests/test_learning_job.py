@@ -136,6 +136,39 @@ async def test_reflect_unlearned_scores_accepts_older_action_payloads(db_session
     )
 
 
+async def test_reflect_unlearned_scores_keeps_only_audited_action_fields(db_session):
+    agent = _agent(db_session)
+    _record, _score = _scored_decision(
+        db_session,
+        agent.id,
+        parsed_output=(
+            '{"actions":[{"type":"BUY","symbol":"BTCUSDT","rationale":"news",'
+            '"policy_refs":["P1"],"policy_alignment":"violates",'
+            '"override_reason":"fresh catalyst","unexpected":"drop me"}]}'
+        ),
+    )
+    calls = []
+
+    def fake_run(evidence, memory, policy, instructions, adapter):
+        calls.append(evidence)
+        return ReflectionResult(MemoryUpdate(), system="SYS", user="USR", raw="{}", parse_status="ok")
+
+    await reflect_unlearned_scores(
+        db_session,
+        run=fake_run,
+        adapter_factory=lambda provider, model: object(),
+    )
+
+    assert calls[0].scores[0].actions == [{
+        "type": "BUY",
+        "symbol": "BTCUSDT",
+        "rationale": "news",
+        "policy_refs": ["P1"],
+        "policy_alignment": "violates",
+        "override_reason": "fresh catalyst",
+    }]
+
+
 async def test_reflect_unlearned_scores_does_not_repeat_reflected_scores(db_session):
     agent = _agent(db_session)
     _record, score = _scored_decision(db_session, agent.id)
@@ -183,3 +216,42 @@ async def test_reflect_unlearned_scores_failure_leaves_score_unreflected(db_sess
         .one()
     )
     assert reflection.parse_status == "failed"
+
+
+async def test_reflect_unlearned_scores_invalid_policy_edit_rolls_back_and_records_failure(db_session):
+    agent = _agent(db_session)
+    journal.append_entries(db_session, agent.id, "trade_lessons", ["keep existing"])
+    _record, score = _scored_decision(db_session, agent.id)
+    db_session.commit()
+
+    def invalid_policy_edit(*args, **kwargs):
+        return ReflectionResult(
+            MemoryUpdate(
+                trade_lessons=["should not apply"],
+                policy_edits=[PolicyEdit(op="retire", policy_ref="P999", reason="bad ref")],
+            ),
+            system="SYS",
+            user="USR",
+            raw='{"trade_lessons":["should not apply"],"policy_edits":[]}',
+            parse_status="ok",
+            latency_ms=4,
+        )
+
+    reflected = await reflect_unlearned_scores(
+        db_session,
+        run=invalid_policy_edit,
+        adapter_factory=lambda provider, model: object(),
+    )
+
+    assert reflected == 0
+    assert db_session.query(DecisionScore).filter_by(id=score.id).one().reflected_at is None
+    assert [row.content for row in journal.active_entries(db_session, agent.id, "trade_lessons")] == [
+        "keep existing"
+    ]
+    reflection = (
+        db_session.query(DecisionRecord)
+        .filter_by(agent_id=agent.id, kind="reflection", trigger="scoring")
+        .one()
+    )
+    assert reflection.parse_status == "failed"
+    assert reflection.parsed_output is None

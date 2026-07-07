@@ -11,9 +11,24 @@ from app.brain.learning import (
 from app.brain.providers import make_adapter
 from app.db.models import Agent, DecisionRecord, DecisionScore
 
+_ACTION_EVIDENCE_FIELDS = (
+    "type",
+    "symbol",
+    "usd_amount",
+    "fraction",
+    "rationale",
+    "policy_refs",
+    "policy_alignment",
+    "override_reason",
+)
+
 
 def _as_utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _action_evidence(action: dict) -> dict:
+    return {key: action[key] for key in _ACTION_EVIDENCE_FIELDS if key in action}
 
 
 def _actions(parsed_output: str | None) -> list[dict]:
@@ -21,7 +36,9 @@ def _actions(parsed_output: str | None) -> list[dict]:
         actions = json.loads(parsed_output or "{}").get("actions", [])
     except Exception:
         return []
-    return actions if isinstance(actions, list) else []
+    if not isinstance(actions, list):
+        return []
+    return [_action_evidence(action) for action in actions if isinstance(action, dict)]
 
 
 def _unreflected_scores(session) -> list[tuple[Agent, DecisionRecord, DecisionScore]]:
