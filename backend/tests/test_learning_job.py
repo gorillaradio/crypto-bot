@@ -4,7 +4,7 @@ from decimal import Decimal
 from app.agents.learning import reflect_unlearned_scores
 from app.brain import journal
 from app.brain.memory import MemoryUpdate, PolicyEdit, ReflectionResult
-from app.db.models import Agent, DecisionRecord, DecisionScore, MemoryEntry
+from app.db.models import Agent, DecisionRecord, DecisionScore, MemoryEntry, Trade
 
 
 def _agent(session):
@@ -134,6 +134,38 @@ async def test_reflect_unlearned_scores_accepts_older_action_payloads(db_session
         db_session.query(DecisionScore).filter_by(id=score.id).one().reflected_at
         is not None
     )
+
+
+async def test_reflect_unlearned_scores_includes_recent_closed_trade_facts(db_session):
+    agent = _agent(db_session)
+    _record, _score = _scored_decision(db_session, agent.id)
+    base_time = datetime.now(timezone.utc) - timedelta(days=1)
+    db_session.add_all([
+        Trade(agent_id=agent.id, symbol="BTCUSDT", side="BUY", quantity=Decimal("1"),
+              price=Decimal("100"), fee=Decimal("0"), timestamp=base_time),
+        Trade(agent_id=agent.id, symbol="BTCUSDT", side="SELL", quantity=Decimal("0.5"),
+              price=Decimal("120"), fee=Decimal("0"), timestamp=base_time + timedelta(hours=1)),
+    ])
+    db_session.commit()
+    calls = []
+
+    def fake_run(evidence, memory, policy, instructions, adapter):
+        calls.append(evidence)
+        return ReflectionResult(MemoryUpdate(), system="SYS", user="USR", raw="{}", parse_status="ok")
+
+    await reflect_unlearned_scores(
+        db_session,
+        run=fake_run,
+        adapter_factory=lambda provider, model: object(),
+    )
+
+    closed = calls[0].closed_trades
+    assert len(closed) == 1
+    assert closed[0].symbol == "BTCUSDT"
+    assert closed[0].quantity == Decimal("0.5")
+    assert closed[0].sell_price == Decimal("120")
+    assert closed[0].avg_cost == Decimal("100")
+    assert closed[0].realized_pnl_pct == Decimal("20")
 
 
 async def test_reflect_unlearned_scores_keeps_only_audited_action_fields(db_session):

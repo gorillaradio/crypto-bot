@@ -21,9 +21,20 @@ class ScoredActionEvidence:
 
 
 @dataclass
+class ClosedTradeEvidence:
+    symbol: str
+    quantity: Decimal
+    sell_price: Decimal
+    avg_cost: Decimal | None
+    realized_pnl_pct: Decimal | None
+    closed_at: datetime
+
+
+@dataclass
 class OutcomeReflectionEvidence:
     agent_id: int
     scores: list[ScoredActionEvidence]
+    closed_trades: list[ClosedTradeEvidence] | None = None
 
 
 _OUTCOME_REFLECT_SYSTEM = """You are the reflective memory of an autonomous paper-trading agent.
@@ -70,6 +81,17 @@ def build_outcome_reflection_prompt(
         )
         for action in score.actions:
             lines.append(f"    action { _format_action(action) }")
+    lines += ["", "Recent closed-trade facts:"]
+    for trade in evidence.closed_trades or []:
+        avg_cost = "null" if trade.avg_cost is None else str(trade.avg_cost)
+        realized = "null" if trade.realized_pnl_pct is None else str(trade.realized_pnl_pct)
+        lines.append(
+            f"  {trade.symbol} closed_at={trade.closed_at.isoformat()} "
+            f"sold_qty={trade.quantity} sell_price={trade.sell_price} "
+            f"avg_cost={avg_cost} realized_pnl_pct={realized}"
+        )
+    if not evidence.closed_trades:
+        lines.append("  (none)")
     lines += ["", "Current memory:"]
     for label, text in (
         ("Coin theses", memory.coin_theses),

@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from app.brain.context import MemoryView, PolicyLine, PolicyMemoryView
 from app.brain.learning import (
+    ClosedTradeEvidence,
     OutcomeReflectionEvidence,
     ScoredActionEvidence,
     build_outcome_reflection_prompt,
@@ -50,6 +51,33 @@ def test_outcome_reflection_prompt_contains_raw_facts_not_judgment():
     assert "policy_alignment=violates" in user
     assert "avg_return_pct=1.25" in user
     assert "P3: Avoid re-entry without fresh evidence." in user
+
+
+def test_outcome_reflection_prompt_contains_closed_trade_facts():
+    evidence = OutcomeReflectionEvidence(
+        agent_id=1,
+        scores=[],
+        closed_trades=[
+            ClosedTradeEvidence(
+                symbol="BTCUSDT",
+                quantity=Decimal("0.5"),
+                sell_price=Decimal("120"),
+                avg_cost=Decimal("100"),
+                realized_pnl_pct=Decimal("20"),
+                closed_at=datetime(2026, 7, 2, 12, 0, tzinfo=timezone.utc),
+            )
+        ],
+    )
+
+    _system, user = build_outcome_reflection_prompt(
+        evidence, MemoryView(), PolicyMemoryView(), "x"
+    )
+
+    assert "Recent closed-trade facts:" in user
+    assert "BTCUSDT" in user
+    assert "sold_qty=0.5" in user
+    assert "avg_cost=100" in user
+    assert "realized_pnl_pct=20" in user
 
 
 def test_run_outcome_reflection_result_parses_memory_update():

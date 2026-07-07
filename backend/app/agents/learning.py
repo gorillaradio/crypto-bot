@@ -1,15 +1,17 @@
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 from app.brain import journal
 from app.brain.learning import (
+    ClosedTradeEvidence,
     OutcomeReflectionEvidence,
     ScoredActionEvidence,
     run_outcome_reflection_result,
 )
 from app.brain.providers import make_adapter
-from app.db.models import Agent, DecisionRecord, DecisionScore
+from app.db.models import Agent, DecisionRecord, DecisionScore, Trade
 
 _ACTION_EVIDENCE_FIELDS = (
     "type",
@@ -56,6 +58,50 @@ def _unreflected_scores(session) -> list[tuple[Agent, DecisionRecord, DecisionSc
     )
 
 
+def _closed_trade_evidence(session, agent_id: int, *, limit: int = 10) -> list[ClosedTradeEvidence]:
+    trades = (
+        session.query(Trade)
+        .filter_by(agent_id=agent_id)
+        .order_by(Trade.timestamp.asc(), Trade.id.asc())
+        .all()
+    )
+    qty_by_symbol: dict[str, Decimal] = {}
+    avg_by_symbol: dict[str, Decimal] = {}
+    closed: list[ClosedTradeEvidence] = []
+    for trade in trades:
+        qty = Decimal(trade.quantity)
+        price = Decimal(trade.price)
+        current_qty = qty_by_symbol.get(trade.symbol, Decimal("0"))
+        current_avg = avg_by_symbol.get(trade.symbol)
+        if trade.side == "BUY":
+            new_qty = current_qty + qty
+            avg_by_symbol[trade.symbol] = (
+                (current_avg or Decimal("0")) * current_qty + price * qty
+            ) / new_qty
+            qty_by_symbol[trade.symbol] = new_qty
+        elif trade.side == "SELL":
+            realized = None
+            if current_avg is not None and current_avg > 0:
+                realized = (price - current_avg) / current_avg * Decimal("100")
+            closed.append(
+                ClosedTradeEvidence(
+                    symbol=trade.symbol,
+                    quantity=qty,
+                    sell_price=price,
+                    avg_cost=current_avg,
+                    realized_pnl_pct=realized,
+                    closed_at=_as_utc(trade.timestamp),
+                )
+            )
+            remaining = current_qty - qty
+            if remaining > 0:
+                qty_by_symbol[trade.symbol] = remaining
+            else:
+                qty_by_symbol.pop(trade.symbol, None)
+                avg_by_symbol.pop(trade.symbol, None)
+    return closed[-limit:]
+
+
 async def reflect_unlearned_scores(
     session,
     *,
@@ -87,6 +133,7 @@ async def reflect_unlearned_scores(
                 )
                 for _agent, record, score in grouped
             ],
+            closed_trades=_closed_trade_evidence(session, agent_id),
         )
         adapter = adapter_factory(agent.model_provider, agent.model_name)
         result = run(
