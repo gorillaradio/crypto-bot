@@ -23,6 +23,7 @@ _ACTION_EVIDENCE_FIELDS = (
     "policy_alignment",
     "override_reason",
 )
+SCORE_EVIDENCE_LIMIT_PER_AGENT = 20
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -113,7 +114,9 @@ async def reflect_unlearned_scores(
     rows = _unreflected_scores(session)
     by_agent: dict[int, list[tuple[Agent, DecisionRecord, DecisionScore]]] = {}
     for agent, record, score in rows:
-        by_agent.setdefault(agent.id, []).append((agent, record, score))
+        grouped = by_agent.setdefault(agent.id, [])
+        if len(grouped) < SCORE_EVIDENCE_LIMIT_PER_AGENT:
+            grouped.append((agent, record, score))
 
     reflected = 0
     for agent_id, grouped in by_agent.items():

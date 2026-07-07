@@ -219,6 +219,36 @@ async def test_reflect_unlearned_scores_does_not_repeat_reflected_scores(db_sess
     assert calls == []
 
 
+async def test_reflect_unlearned_scores_batches_per_agent(db_session):
+    from app.agents.learning import SCORE_EVIDENCE_LIMIT_PER_AGENT
+
+    agent = _agent(db_session)
+    scores = [_scored_decision(db_session, agent.id)[1]
+              for _ in range(SCORE_EVIDENCE_LIMIT_PER_AGENT + 2)]
+    calls = []
+
+    def fake_run(evidence, memory, policy, instructions, adapter):
+        calls.append(evidence)
+        return ReflectionResult(MemoryUpdate(), system="SYS", user="USR", raw="{}", parse_status="ok")
+
+    reflected = await reflect_unlearned_scores(
+        db_session,
+        run=fake_run,
+        adapter_factory=lambda provider, model: object(),
+    )
+
+    assert reflected == SCORE_EVIDENCE_LIMIT_PER_AGENT
+    assert len(calls) == 1
+    assert len(calls[0].scores) == SCORE_EVIDENCE_LIMIT_PER_AGENT
+    reflected_ids = {
+        score.id for score in db_session.query(DecisionScore)
+        .filter(DecisionScore.reflected_at.is_not(None))
+        .all()
+    }
+    assert reflected_ids == {score.id for score in scores[:SCORE_EVIDENCE_LIMIT_PER_AGENT]}
+    assert db_session.query(DecisionScore).filter(DecisionScore.reflected_at.is_(None)).count() == 2
+
+
 async def test_reflect_unlearned_scores_failure_leaves_score_unreflected(db_session):
     agent = _agent(db_session)
     _record, score = _scored_decision(db_session, agent.id)
