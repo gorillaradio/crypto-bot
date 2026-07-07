@@ -32,6 +32,21 @@ async def test_scoring_tick_scores_matured_decisions(db_session, monkeypatch):
     assert db_session.query(DecisionScore).filter_by(decision_record_id=rec.id).count() == 2
 
 
+async def test_learning_tick_reflects_after_scoring(db_session, monkeypatch):
+    calls = []
+
+    async def fake_reflect(session):
+        calls.append(session)
+        return 1
+
+    monkeypatch.setattr(jobs, "get_session", lambda: _CtxSession(db_session))
+    monkeypatch.setattr(jobs, "reflect_unlearned_scores", fake_reflect)
+
+    await jobs._learning_tick()
+
+    assert calls == [db_session]
+
+
 class _CtxSession:
     """Minimal context-manager wrapper so `with get_session() as s:` yields our test session."""
     def __init__(self, s): self._s = s
