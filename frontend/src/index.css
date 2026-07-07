@@ -177,53 +177,142 @@ body {
   .spark-skel { animation: none; }
 }
 
-/* --- preserved: activity box (EventsFeed) is out of scope, keep its styles --- */
-
+/* --- semantic market colors: BUY/up green, SELL/down red, warn amber.
+   Tuned per theme so the small colored text stays ≥4.5:1 on card surfaces;
+   the light values are darker cousins of the dark-theme hues, same families. --- */
 :root {
-  /* EventsFeed-only custom properties (not shadcn variables) */
-  --ef-pos: oklch(0.78 0.16 150);
-  --ef-pos-bg: oklch(0.78 0.16 150 / 0.12);
-  --ef-neg: oklch(0.70 0.19 26);
-  --ef-neg-bg: oklch(0.70 0.19 26 / 0.12);
-  --ef-surface-2: oklch(0.24 0.012 260);
-  --ef-border: oklch(0.30 0.014 260);
-  --ef-faint: oklch(0.62 0.012 260);
-  --ef-ink: oklch(0.94 0.008 260);
-  --ef-muted: oklch(0.70 0.014 260);
-  --ef-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --pos: oklch(0.52 0.14 150);
+  --pos-bg: oklch(0.52 0.14 150 / 0.10);
+  --neg: oklch(0.54 0.19 26);
+  --neg-bg: oklch(0.54 0.19 26 / 0.10);
+  --warn: oklch(0.52 0.11 76);
+  --warn-bg: oklch(0.52 0.11 76 / 0.12);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+.dark {
+  --pos: oklch(0.78 0.16 150);
+  --pos-bg: oklch(0.78 0.16 150 / 0.12);
+  --neg: oklch(0.70 0.19 26);
+  --neg-bg: oklch(0.70 0.19 26 / 0.12);
+  --warn: oklch(0.82 0.13 76);
+  --warn-bg: oklch(0.82 0.13 76 / 0.14);
 }
 
-.num { font-family: var(--ef-mono); font-variant-numeric: tabular-nums; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-.pos { color: var(--ef-pos); }
-.neg { color: var(--ef-neg); }
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
 
-.empty { color: var(--ef-faint); font-size: 14px; line-height: 1.5; padding: 18px 2px; }
+.empty { color: var(--muted-foreground); font-size: 14px; line-height: 1.5; padding: 18px 2px; }
 
-/* ---- activity feed, grouped by decision cycle ---- */
-.feed { display: flex; flex-direction: column; gap: 20px; max-height: 420px; overflow-y: auto; }
-.cycle { display: flex; flex-direction: column; gap: 9px; }
+/* BUY/SELL tags: color always paired with the text label, never color alone */
+.tag {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  padding: 2px 7px; border-radius: 5px; text-align: center;
+}
+.tag.buy { color: var(--pos); background: var(--pos-bg); }
+.tag.sell { color: var(--neg); background: var(--neg-bg); }
+.tag.dec { color: var(--muted-foreground); background: var(--secondary); }
 
-/* the CICLO summary heads its group */
+/* --- segmented control (feed filter, memory tabs) --- */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button {
+  font-size: 12px; padding: 3.5px 11px; cursor: pointer;
+  color: var(--muted-foreground); background: transparent;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { color: var(--foreground); }
+.seg button[aria-pressed="true"] { color: var(--foreground); background: var(--secondary); font-weight: 500; }
+.seg button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+/* shared day separator for scrolling feeds (Attività, Memoria › cronologia) */
+.day-label {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--card);
+  font-size: 11px; font-weight: 600; color: var(--muted-foreground);
+  padding: 2px 0 6px;
+}
+
+/* pill badges (risveglio / errore / guardrail) and quiet footer chips */
+.badge {
+  flex-shrink: 0; font-size: 10.5px; font-weight: 600;
+  padding: 1px 8px; border-radius: 999px;
+  background: var(--secondary); color: var(--muted-foreground);
+}
+.badge-wake { color: var(--warn); background: var(--warn-bg); }
+.badge-err { color: var(--neg); background: var(--neg-bg); }
+
+.chip {
+  font-size: 11px; padding: 1.5px 9px; border-radius: 999px;
+  background: var(--secondary); color: var(--muted-foreground);
+}
+.chip-warn { color: var(--warn); background: var(--warn-bg); }
+.chip-err { color: var(--neg); background: var(--neg-bg); }
+
+/* ---- Attività: il diario delle decisioni, un blocco per ciclo ---- */
+.feed-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.feed-count { font-size: 12px; color: var(--muted-foreground); }
+
+.feed-scroll {
+  max-height: 480px; overflow-y: auto; padding-right: 6px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.cycles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 15px; }
+.cycle { display: flex; flex-direction: column; gap: 7px; }
+
+/* head: time · badge (solo eccezioni) · la nota dell'agente come titolo */
 .cycle-head { display: flex; gap: 10px; align-items: baseline; }
-.cycle-head .cycle-time { color: var(--ef-faint); font-size: 11px; flex-shrink: 0; }
-.cycle-head .cycle-summary { font-size: 13px; font-weight: 500; color: var(--ef-ink); }
+.cycle-time { color: var(--muted-foreground); font-size: 11px; flex-shrink: 0; }
+.cycle-note { font-size: 13px; font-weight: 500; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.cycle-note.is-err { color: var(--neg); }
+.cycle-note-none { color: var(--muted-foreground); font-weight: 400; font-style: italic; }
 
-/* the moves hang off the head on a hairline timeline thread */
+/* moves hang off the head on a hairline thread; each carries its own "why" */
 .cycle-moves {
-  list-style: none; margin: 0 0 0 4px; padding: 1px 0 1px 16px;
-  border-left: 1px solid var(--ef-border);
-  display: flex; flex-direction: column; gap: 7px;
+  list-style: none; margin: 0 0 0 12px; padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 8px;
 }
-.cycle-moves.bare { border-left: none; margin-left: 0; padding-left: 0; }
-.cycle-moves .move { display: grid; grid-template-columns: 52px 1fr; gap: 10px; align-items: baseline; }
-.cycle-moves .body { font-family: var(--ef-mono); font-size: 13px; }
-.cycle-moves .reason { color: var(--ef-muted); font-size: 12px; line-height: 1.45; }
-.cycle-moves .time { color: var(--ef-faint); font-size: 11px; margin-right: 8px; }
+.move { display: flex; gap: 9px; align-items: baseline; }
+.move .tag { flex-shrink: 0; min-width: 46px; }
+.move-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.move-line { font-size: 13px; overflow-wrap: anywhere; }
+.move-line b { font-weight: 650; }
+.move-why { font-size: 12px; color: var(--muted-foreground); line-height: 1.5; max-width: 68ch; }
 
-.cycle-foot { padding-left: 20px; color: var(--ef-faint); font-size: 11px; }
+.cycle-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: 26px; }
 
-.tag { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; padding: 2px 7px; border-radius: 5px; text-align: center; }
-.tag.buy { color: var(--ef-pos); background: var(--ef-pos-bg); }
-.tag.sell { color: var(--ef-neg); background: var(--ef-neg-bg); }
-.tag.dec { color: var(--ef-muted); background: var(--ef-surface-2); }
+/* ---- Memoria: stato attuale + cronologia ---- */
+.mem-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.mem-hint { font-size: 12px; color: var(--muted-foreground); line-height: 1.55; max-width: 72ch; margin-bottom: 16px; }
+
+.mem-grid { display: grid; grid-template-columns: 1fr; gap: 20px 32px; }
+@media (min-width: 640px) { .mem-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mem-sec-head { display: flex; align-items: baseline; gap: 8px; }
+.mem-sec-head h3 { font-size: 13px; font-weight: 600; }
+.mem-fill { font-size: 11px; color: var(--muted-foreground); }
+.mem-sec-desc { font-size: 11.5px; color: var(--muted-foreground); margin: 1px 0 9px; }
+.mem-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mem-list li { font-size: 13px; line-height: 1.5; padding-left: 12px; position: relative; overflow-wrap: anywhere; }
+.mem-list li::before { content: "–"; position: absolute; left: 0; color: var(--muted-foreground); }
+.mem-ref { font-family: var(--mono); font-size: 10.5px; color: var(--muted-foreground); margin-right: 6px; }
+.mem-sec-empty { font-size: 12px; color: var(--muted-foreground); font-style: italic; }
+
+.mem-log { max-height: 480px; overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 18px; }
+.mem-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.mem-row { display: flex; gap: 10px; align-items: baseline; }
+.mem-row time { color: var(--muted-foreground); font-size: 11px; flex-shrink: 0; }
+.mem-badge {
+  flex-shrink: 0; font-size: 10.5px; font-weight: 600;
+  padding: 1px 8px; border-radius: 999px; min-width: 56px; text-align: center;
+  background: var(--secondary); color: var(--muted-foreground);
+}
+.mem-row .content { font-size: 13px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.mem-row.retired .content { color: var(--muted-foreground); }

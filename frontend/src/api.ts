@@ -36,10 +36,22 @@ export type Position = {
   unrealized_pnl_pct: string | null;
   market_value: string | null;
 };
+export type Trade = {
+  id: number;
+  symbol: string;
+  side: string; // "BUY" | "SELL"
+  quantity: string;
+  price: string;
+  fee: string;
+  timestamp: string;
+};
+export type PolicyLine = { ref: string; content: string };
 export type AgentMemory = {
   coin_theses: string;
   trade_lessons: string;
   strategy_notes: string;
+  self_policy: PolicyLine[];
+  caps: Record<string, number>;
 };
 export type MemoryEntry = {
   section: string; content: string; cycle_id: string | null; active: boolean; created_at: string;
@@ -80,6 +92,7 @@ export const getBenchmarks = (id: number) => get<BenchmarkPoint[]>(`/api/agents/
 export const getAgentMetrics = (id: number) => get<AgentMetrics>(`/api/agents/${id}/metrics`);
 export const getModelMetrics = () => get<ModelMetrics[]>("/api/metrics/by-model");
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
+export const getTrades = (id: number) => get<Trade[]>(`/api/agents/${id}/trades`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
 export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);

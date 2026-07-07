@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PositionOut, PromptPreviewOut
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
 from app.brain.brief_store import latest_valid_brief, filter_brief_for
@@ -210,12 +210,27 @@ def get_model_metrics(session=Depends(session_dep), _: str = Depends(require_vie
     ]
 
 
+@router.get("/agents/{agent_id}/trades", response_model=list[TradeOut])
+def get_trades(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
+    return (
+        session.query(Trade)
+        .filter_by(agent_id=agent_id)
+        .order_by(Trade.timestamp.desc(), Trade.id.desc())
+        .limit(100)
+        .all()
+    )
+
+
 @router.get("/agents/{agent_id}/memory", response_model=MemoryOut)
 def get_memory(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
-    from app.brain.journal import compact_view
+    from app.brain.journal import SECTION_CAPS, compact_view, policy_view
     view = compact_view(session, agent_id)
+    policy = policy_view(session, agent_id)
     return MemoryOut(coin_theses=view.coin_theses, trade_lessons=view.trade_lessons,
-                     strategy_notes=view.strategy_notes)
+                     strategy_notes=view.strategy_notes,
+                     self_policy=[PolicyLineOut(ref=line.ref, content=line.content)
+                                  for line in policy.active],
+                     caps=dict(SECTION_CAPS))
 
 
 @router.get("/agents/{agent_id}/memory/journal", response_model=list[MemoryEntryOut])

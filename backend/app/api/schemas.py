@@ -104,10 +104,27 @@ class DecisionRecordOut(BaseModel):
     created_at: datetime
 
 
+class TradeOut(BaseModel):
+    id: int
+    symbol: str
+    side: str
+    quantity: Decimal
+    price: Decimal
+    fee: Decimal
+    timestamp: datetime
+
+
+class PolicyLineOut(BaseModel):
+    ref: str
+    content: str
+
+
 class MemoryOut(BaseModel):
     coin_theses: str
     trade_lessons: str
     strategy_notes: str
+    self_policy: list[PolicyLineOut] = []
+    caps: dict[str, int] = {}
 
 
 class MemoryEntryOut(BaseModel):

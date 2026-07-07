@@ -12,7 +12,7 @@ describe("PositionsTable", () => {
   it("shows P&L percent and market value", () => {
     render(<PositionsTable positions={[pos()]} />);
     expect(screen.getByText("+50.00%")).toBeInTheDocument();
-    expect(screen.getByText("$300")).toBeInTheDocument();
+    expect(screen.getByText("$300.00")).toBeInTheDocument();
   });
 
   it("shows a dash when P&L is unavailable", () => {

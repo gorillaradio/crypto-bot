@@ -181,6 +181,56 @@ def test_get_agent_memory_returns_sections(db_session):
     assert body["trade_lessons"] == ""
 
 
+def test_get_agent_memory_includes_policy_and_caps(db_session):
+    from app.brain import journal
+    agent = Agent(name="Pol", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    rows = journal.append_entries(db_session, agent.id, "self_policy", ["mai più del 30% su una coin"])
+    db_session.commit()
+    client = _client(db_session)
+    body = client.get(f"/api/agents/{agent.id}/memory").json()
+    assert body["self_policy"] == [
+        {"ref": journal.policy_ref(rows[0]), "content": "mai più del 30% su una coin"}]
+    assert body["caps"]["coin_theses"] == journal.SECTION_CAPS["coin_theses"]
+    assert body["caps"]["self_policy"] == journal.SECTION_CAPS["self_policy"]
+
+
+def test_get_trades_returns_rows_newest_first(db_session):
+    agent = Agent(name="T", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    t0 = datetime.now(timezone.utc) - timedelta(hours=2)
+    db_session.add(Trade(agent_id=agent.id, symbol="BTCUSDT", side="BUY",
+                         quantity=Decimal("0.5"), price=Decimal("100"), fee=Decimal("0.05"),
+                         timestamp=t0))
+    db_session.add(Trade(agent_id=agent.id, symbol="ETHUSDT", side="SELL",
+                         quantity=Decimal("2"), price=Decimal("50"), fee=Decimal("0.1"),
+                         timestamp=t0 + timedelta(hours=1)))
+    db_session.commit()
+    client = _client(db_session)
+    resp = client.get(f"/api/agents/{agent.id}/trades")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert [r["symbol"] for r in rows] == ["ETHUSDT", "BTCUSDT"]   # newest first
+    assert rows[0]["side"] == "SELL"
+    assert Decimal(rows[0]["quantity"]) == Decimal("2")
+    assert Decimal(rows[0]["price"]) == Decimal("50")
+    assert Decimal(rows[0]["fee"]) == Decimal("0.1")
+
+
+def test_get_trades_empty_for_agent_without_trades(db_session):
+    agent = Agent(name="T0", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    client = _client(db_session)
+    resp = client.get(f"/api/agents/{agent.id}/trades")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
 def test_get_events_returns_last_100_desc(db_session):
     agent = Agent(name="C", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
