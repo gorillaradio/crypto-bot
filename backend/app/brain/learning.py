@@ -40,7 +40,7 @@ class OutcomeReflectionEvidence:
 _OUTCOME_REFLECT_SYSTEM = """You are the reflective memory of an autonomous paper-trading agent.
 You are reviewing raw factual evidence from matured decision scores. These are facts, not judgments.
 Decide what they mean, if anything, for your future behavior and self-policy.
-Do not blacklist symbols. Do not create hard cooldown rules unless you explicitly choose them as your own self-policy.
+Do not blacklist symbols or create hard cooldown rules.
 Output ONLY a JSON object of this exact shape:
 {{"coin_theses": ["<one-line new thesis>"],
   "trade_lessons": ["<one-line new lesson>"],

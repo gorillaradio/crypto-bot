@@ -278,13 +278,20 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         try:
             held_symbols = [p.symbol for p in agent.positions]
             rr = reflect(ctx.memory, ctx.policy, closed_trades, held_symbols, agent.instructions, adapter)
-            _record_llm_call(session, agent, cycle_id, "reflection", trigger,
-                             system=rr.system, user=rr.user, raw=rr.raw,
-                             parsed_output=(rr.entries.model_dump_json()
-                                            if rr.parse_status == "ok" else None),
-                             parse_status=rr.parse_status, latency_ms=rr.latency_ms)
             if rr.parse_status == "ok":
-                journal.apply_memory_update(session, agent.id, rr.entries, cycle_id=cycle_id)
+                try:
+                    journal.apply_memory_update(session, agent.id, rr.entries, cycle_id=cycle_id)
+                except Exception:
+                    session.rollback()
+                    _record_llm_call(session, agent, cycle_id, "reflection", trigger,
+                                     system=rr.system, user=rr.user, raw=rr.raw,
+                                     parsed_output=None,
+                                     parse_status="failed", latency_ms=rr.latency_ms)
+                    raise
+                _record_llm_call(session, agent, cycle_id, "reflection", trigger,
+                                 system=rr.system, user=rr.user, raw=rr.raw,
+                                 parsed_output=rr.entries.model_dump_json(),
+                                 parse_status=rr.parse_status, latency_ms=rr.latency_ms)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="memoria aggiornata dopo trade chiuso"))
                 for section in journal.NARRATIVE_SECTIONS:
@@ -302,6 +309,10 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                             session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                               message=f"memoria distillata: {section}"))
             else:
+                _record_llm_call(session, agent, cycle_id, "reflection", trigger,
+                                 system=rr.system, user=rr.user, raw=rr.raw,
+                                 parsed_output=None,
+                                 parse_status=rr.parse_status, latency_ms=rr.latency_ms)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="reflection: risposta non valida, memoria invariata"))
         except Exception as exc:

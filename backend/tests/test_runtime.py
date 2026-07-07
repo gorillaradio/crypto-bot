@@ -403,6 +403,9 @@ async def test_invalid_policy_edit_leaves_reflection_memory_unchanged(db_session
           .order_by(Event.id.desc())
           .first())
     assert "errore" in ev.message.lower() or "invalid" in ev.message.lower()
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="reflection").one()
+    assert rec.parse_status == "failed"
+    assert rec.parsed_output is None
 
 
 async def test_decision_events_share_one_cycle_id(db_session):
