@@ -125,6 +125,39 @@ def test_decision_score_persists_with_null_return(db_session):
     assert score.id is not None and score.avg_return_pct is None
 
 
+def test_decision_score_reflected_at_defaults_to_none(db_session):
+    from app.db.models import DecisionRecord, DecisionScore
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=1)
+    db_session.add(rec); db_session.commit()
+
+    score = DecisionScore(decision_record_id=rec.id, window="24h", n_actions=0, n_hits=0,
+                          avg_return_pct=None)
+    db_session.add(score); db_session.commit()
+
+    assert score.reflected_at is None
+
+
+def test_decision_score_reflected_at_can_be_set(db_session):
+    from app.db.models import DecisionRecord, DecisionScore
+    a = _mk_agent(db_session)
+    rec = DecisionRecord(agent_id=a.id, cycle_id="c", kind="decision", trigger="schedule",
+                         system_prompt="s", user_prompt="u", raw_response="r",
+                         parsed_output='{"actions":[]}', parse_status="ok",
+                         model_provider="openrouter", model_name="m", latency_ms=1)
+    db_session.add(rec); db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    score = DecisionScore(decision_record_id=rec.id, window="24h", n_actions=0, n_hits=0,
+                          avg_return_pct=None, reflected_at=now)
+    db_session.add(score); db_session.commit()
+
+    assert score.reflected_at == now
+
+
 def test_decision_score_unique_per_record_and_window(db_session):
     import pytest
     from sqlalchemy.exc import IntegrityError
@@ -140,6 +173,12 @@ def test_decision_score_unique_per_record_and_window(db_session):
     db_session.add(DecisionScore(decision_record_id=rec.id, window="24h", n_actions=2, n_hits=0))
     with pytest.raises(IntegrityError):
         db_session.commit()
+
+
+def test_settings_exposes_market_brief_max_age_minutes():
+    from app.core.config import settings
+
+    assert settings.market_brief_max_age_minutes == 120
 
 
 def test_memory_entry_persists_with_defaults(db_session):

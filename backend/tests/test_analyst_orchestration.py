@@ -39,8 +39,8 @@ async def test_get_or_bootstrap_reuses_existing(db_session):
     await run_analyst_cycle(db_session, _Market(), run=_fake_run(), adapter=object())
     calls = {"n": 0}
     async def _cycle(session, market): calls["n"] += 1; return None
-    row = await get_or_bootstrap_brief(db_session, _Market(), run_cycle=_cycle)
-    assert row is not None and calls["n"] == 0           # reused, no bootstrap
+    lookup = await get_or_bootstrap_brief(db_session, _Market(), run_cycle=_cycle)
+    assert lookup.row is not None and lookup.has_valid is True and calls["n"] == 0
 
 
 async def test_get_or_bootstrap_runs_cycle_when_empty(db_session):
@@ -48,8 +48,8 @@ async def test_get_or_bootstrap_runs_cycle_when_empty(db_session):
     async def _cycle(session, market):
         calls["n"] += 1
         return await run_analyst_cycle(session, market, run=_fake_run(), adapter=object())
-    row = await get_or_bootstrap_brief(db_session, _Market(), run_cycle=_cycle)
-    assert row is not None and calls["n"] == 1
+    lookup = await get_or_bootstrap_brief(db_session, _Market(), run_cycle=_cycle)
+    assert lookup.row is not None and lookup.has_valid is True and calls["n"] == 1
 
 
 from datetime import datetime, timezone, timedelta

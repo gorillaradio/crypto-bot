@@ -518,6 +518,24 @@ def test_get_memory_journal_returns_entries_newest_first(db_session):
     assert {e["active"] for e in body} == {True, False}
 
 
+def test_memory_journal_includes_self_policy_entries(db_session):
+    from app.brain import journal
+    agent = Agent(name="Policy API", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    journal.append_entries(db_session, agent.id, "self_policy", ["Wait for evidence."])
+    db_session.commit()
+    client = _client(db_session)
+
+    resp = client.get(f"/api/agents/{agent.id}/memory/journal")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["section"] == "self_policy"
+    assert body[0]["content"] == "Wait for evidence."
+
+
 def test_get_memory_journal_empty_for_unknown_agent(db_session):
     client = _client(db_session)
     resp = client.get("/api/agents/9999/memory/journal")

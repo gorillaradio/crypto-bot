@@ -5,7 +5,7 @@ from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, Memory
                            DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, universe_size
 from app.brain.context import CoinSnapshot
-from app.brain.memory import ReflectionResult
+from app.brain.memory import ReflectionResult, PolicyEdit
 from app.brain.schema import Decision, Action, DecisionResult
 from app.brain import journal
 from app.brain.memory import MemoryUpdate, DistillationResult
@@ -44,10 +44,12 @@ def _stub_brief_bootstrap(monkeypatch):
     """v2-only decision path: build_trader_context resolves a brief via get_or_bootstrap_brief,
     which cold-starts the analyst (needs get_top_symbols + a live adapter) when the fresh test DB
     has no brief. These decision-execution tests fake the trader decision and don't exercise the
-    brief, so stub the resolver to None (the trader renders brief-less)."""
+    brief, so stub the resolver to a no-brief lookup (the trader renders brief-less)."""
     from app.agents import runtime as _runtime
+    from app.brain.brief_store import BriefLookup
     from unittest.mock import AsyncMock
-    monkeypatch.setattr(_runtime, "get_or_bootstrap_brief", AsyncMock(return_value=None))
+    monkeypatch.setattr(_runtime, "get_or_bootstrap_brief",
+                        AsyncMock(return_value=BriefLookup(row=None, unavailable_reason=None, has_valid=False)))
 
 
 def _agent(session, cash="100"):
@@ -196,6 +198,27 @@ async def test_llm_path_executes_buy_with_guardrails(db_session):
     assert "testing" in ev.message
 
 
+async def test_policy_violation_disclosure_does_not_block_valid_buy(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[
+        Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"),
+               rationale="override",
+               policy_refs=["P999"], policy_alignment="violates",
+               override_reason="fresh catalyst")
+    ], note="buy anyway")
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+
+    assert db_session.query(Trade).filter_by(agent_id=agent.id, side="BUY").count() == 1
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="decision").one()
+    assert '"policy_refs":["P999"]' in rec.parsed_output
+    assert '"policy_alignment":"violates"' in rec.parsed_output
+    assert '"override_reason":"fresh catalyst"' in rec.parsed_output
+
+
 async def test_llm_all_in_buy_clamps_for_fee_and_executes(db_session):
     """An all-in BUY (usd_amount == cash) must succeed, not error out: the runtime
     clamps the requested spend to cash/(1+fee_rate) so the fee fits on top, opening
@@ -290,7 +313,7 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
     decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
 
     calls = []
-    def fake_reflect(memory, closed, held_symbols, instructions, adapter):
+    def fake_reflect(memory, policy, closed, held_symbols, instructions, adapter):
         calls.append(closed)
         return ReflectionResult(MemoryUpdate(coin_theses=["BTC: took profit"], trade_lessons=["green exit"]))
 
@@ -329,6 +352,60 @@ async def test_reflection_call_is_recorded(db_session):
     assert rr.latency_ms == 7 and rr.trigger == "schedule"
     assert rr.system_prompt == "RSYS" and rr.user_prompt == "RUSR"
     assert rr.cycle_id == dd.cycle_id             # decision + reflection share the cycle
+
+
+async def test_reflection_can_add_self_policy_on_sell(db_session):
+    agent = _llm_agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
+    market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
+    decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
+
+    def fake_reflect(memory, policy, closed, held_symbols, instructions, adapter):
+        return ReflectionResult(MemoryUpdate(policy_edits=[
+            PolicyEdit(op="add", text="Wait for fresh evidence before re-entry.", reason="Churn hurt.")
+        ]))
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=fake_reflect)
+
+    rows = journal.active_entries(db_session, agent.id, "self_policy")
+    assert [r.content for r in rows] == ["Wait for fresh evidence before re-entry."]
+
+
+async def test_invalid_policy_edit_leaves_reflection_memory_unchanged(db_session):
+    agent = _llm_agent(db_session)
+    journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: keep"])
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
+    market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
+    decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
+
+    def fake_reflect(memory, policy, closed, held_symbols, instructions, adapter):
+        return ReflectionResult(MemoryUpdate(
+            coin_theses=["BTC: should not apply"],
+            policy_edits=[PolicyEdit(op="retire", policy_ref="P999", reason="bad ref")],
+        ))
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=fake_reflect)
+
+    assert [r.content for r in journal.active_entries(db_session, agent.id, "coin_theses")] == ["BTC: keep"]
+    assert journal.active_entries(db_session, agent.id, "self_policy") == []
+    ev = (db_session.query(Event)
+          .filter_by(agent_id=agent.id, kind="reflection")
+          .order_by(Event.id.desc())
+          .first())
+    assert "errore" in ev.message.lower() or "invalid" in ev.message.lower()
+    rec = db_session.query(DecisionRecord).filter_by(agent_id=agent.id, kind="reflection").one()
+    assert rec.parse_status == "failed"
+    assert rec.parsed_output is None
 
 
 async def test_decision_events_share_one_cycle_id(db_session):

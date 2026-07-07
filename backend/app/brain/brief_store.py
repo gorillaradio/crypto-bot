@@ -1,7 +1,16 @@
 import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from app.core.config import settings
 from app.db.models import MarketBrief
 from app.brain.context import MarketBriefView, HighlightView
+
+
+@dataclass
+class BriefLookup:
+    row: MarketBrief | None
+    unavailable_reason: str | None
+    has_valid: bool
 
 
 def persist_brief(session, cycle_id: str, result) -> MarketBrief:
@@ -25,6 +34,29 @@ def latest_valid_brief(session) -> MarketBrief | None:
             .filter(MarketBrief.parsed_brief.isnot(None))
             .order_by(MarketBrief.created_at.desc(), MarketBrief.id.desc())
             .first())
+
+
+def _as_utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _age_minutes(row: MarketBrief, now: datetime) -> int:
+    return int((_as_utc(now) - _as_utc(row.created_at)).total_seconds() // 60)
+
+
+def brief_lookup_for_prompt(session, now: datetime | None = None) -> BriefLookup:
+    now = now or datetime.now(timezone.utc)
+    row = latest_valid_brief(session)
+    if row is None:
+        return BriefLookup(row=None, unavailable_reason=None, has_valid=False)
+    age = _age_minutes(row, now)
+    if age > settings.market_brief_max_age_minutes:
+        return BriefLookup(
+            row=None,
+            unavailable_reason=f"latest valid brief is stale by {age}m",
+            has_valid=True,
+        )
+    return BriefLookup(row=row, unavailable_reason=None, has_valid=True)
 
 
 def filter_brief_for(brief_row, universe_symbols) -> MarketBriefView:

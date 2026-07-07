@@ -9,7 +9,12 @@ from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
 from app.brain import evaluate_trader
 from app.brain.analyst import AnalystContext, run_analyst
-from app.brain.brief_store import persist_brief, latest_valid_brief, filter_brief_for
+from app.brain.brief_store import (
+    BriefLookup,
+    brief_lookup_for_prompt,
+    filter_brief_for,
+    persist_brief,
+)
 from app.brain.context import build_context
 from app.brain import journal
 from app.brain.memory import run_reflection_result, run_distillation_result, ClosedTrade
@@ -27,12 +32,12 @@ def universe_size(agent) -> int:
 async def build_trader_context(session, agent, market, symbols, *, wake_reason=None):
     """v2 context: brief (bootstrap se assente) + posizioni live + memoria + eventi + wake_reason.
     NON scarica lo snapshot universo (l'analyst ha già sintetizzato il mercato una volta, condiviso)."""
-    brief_row = await get_or_bootstrap_brief(session, market)
-    return await assemble_trader_context(session, agent, market, symbols, brief_row,
+    brief_lookup = await get_or_bootstrap_brief(session, market)
+    return await assemble_trader_context(session, agent, market, symbols, brief_lookup,
                                          wake_reason=wake_reason)
 
 
-async def assemble_trader_context(session, agent, market, symbols, brief_row, *, wake_reason=None):
+async def assemble_trader_context(session, agent, market, symbols, brief_lookup, *, wake_reason=None):
     """Assembla il DecisionContext del trader da un brief_row GIÀ risolto (nessun bootstrap qui).
     Condiviso dal ciclo di decisione (brief con bootstrap) e dal monitor prompt (solo latest, no LLM)."""
     holdings = []
@@ -43,10 +48,13 @@ async def assemble_trader_context(session, agent, market, symbols, brief_row, *,
         session.query(Event).filter_by(agent_id=agent.id)
         .order_by(Event.timestamp.desc()).limit(10).all())]
     memory = journal.compact_view(session, agent.id)
-    brief = filter_brief_for(brief_row, symbols) if brief_row is not None else None
+    policy = journal.policy_view(session, agent.id)
+    brief = filter_brief_for(brief_lookup.row, symbols) if brief_lookup.row is not None else None
     return build_context(instructions=agent.instructions, cash_usd=agent.cash_usd,
                          holdings=holdings, recent_events=recent,
-                         memory=memory, brief=brief, wake_reason=wake_reason)
+                         memory=memory, policy=policy, brief=brief,
+                         wake_reason=wake_reason,
+                         brief_unavailable_reason=brief_lookup.unavailable_reason)
 
 
 async def _position_move(market, symbol):
@@ -77,15 +85,16 @@ async def run_analyst_cycle(session, market, *, run=run_analyst, adapter=None):
     return row if result.parse_status != "failed" else None
 
 
-async def get_or_bootstrap_brief(session, market, *, run_cycle=None):
+async def get_or_bootstrap_brief(session, market, *, run_cycle=None, now=None) -> BriefLookup:
     """Latest valid brief, or bootstrap one via run_analyst_cycle if none exists yet (cold start).
     The only analyst run outside the hourly cycle."""
-    brief = latest_valid_brief(session)
-    if brief is not None:
-        return brief
+    lookup = brief_lookup_for_prompt(session, now=now)
+    if lookup.row is not None or lookup.has_valid:
+        return lookup
     if run_cycle is None:
         run_cycle = run_analyst_cycle
-    return await run_cycle(session, market)
+    await run_cycle(session, market)
+    return brief_lookup_for_prompt(session, now=now)
 
 
 async def run_heartbeat(session, agent, market, *, trigger_decision=None) -> None:
@@ -268,19 +277,24 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
     if closed_trades:
         try:
             held_symbols = [p.symbol for p in agent.positions]
-            rr = reflect(ctx.memory, closed_trades, held_symbols, agent.instructions, adapter)
-            _record_llm_call(session, agent, cycle_id, "reflection", trigger,
-                             system=rr.system, user=rr.user, raw=rr.raw,
-                             parsed_output=(rr.entries.model_dump_json()
-                                            if rr.parse_status == "ok" else None),
-                             parse_status=rr.parse_status, latency_ms=rr.latency_ms)
+            rr = reflect(ctx.memory, ctx.policy, closed_trades, held_symbols, agent.instructions, adapter)
             if rr.parse_status == "ok":
-                for section in journal.SECTIONS:
-                    journal.append_entries(session, agent.id, section,
-                                           getattr(rr.entries, section), cycle_id=cycle_id)
+                try:
+                    journal.apply_memory_update(session, agent.id, rr.entries, cycle_id=cycle_id)
+                except Exception:
+                    session.rollback()
+                    _record_llm_call(session, agent, cycle_id, "reflection", trigger,
+                                     system=rr.system, user=rr.user, raw=rr.raw,
+                                     parsed_output=None,
+                                     parse_status="failed", latency_ms=rr.latency_ms)
+                    raise
+                _record_llm_call(session, agent, cycle_id, "reflection", trigger,
+                                 system=rr.system, user=rr.user, raw=rr.raw,
+                                 parsed_output=rr.entries.model_dump_json(),
+                                 parse_status=rr.parse_status, latency_ms=rr.latency_ms)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="memoria aggiornata dopo trade chiuso"))
-                for section in journal.SECTIONS:
+                for section in journal.NARRATIVE_SECTIONS:
                     if journal.active_count(session, agent.id, section) > journal.SECTION_CAPS[section]:
                         current = [e.content for e in journal.active_entries(session, agent.id, section)]
                         dres = distill(section, current, journal.SECTION_CAPS[section],
@@ -295,6 +309,10 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                             session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                               message=f"memoria distillata: {section}"))
             else:
+                _record_llm_call(session, agent, cycle_id, "reflection", trigger,
+                                 system=rr.system, user=rr.user, raw=rr.raw,
+                                 parsed_output=None,
+                                 parse_status=rr.parse_status, latency_ms=rr.latency_ms)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="reflection: risposta non valida, memoria invariata"))
         except Exception as exc:

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # --- brain v2 (Fase 6) ---
     analyst_model: str = "deepseek/deepseek-v4-pro"   # OpenRouter slug — verify at wiring/deploy
     brief_max_highlights: int = 15
+    market_brief_max_age_minutes: int = 120
     analyst_news_limit: int = 30
 
     anthropic_api_key: str = ""

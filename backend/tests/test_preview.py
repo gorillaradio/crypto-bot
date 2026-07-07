@@ -46,3 +46,15 @@ async def test_preview_no_positions_has_note(db_session):
     market = FakeMarketPreview([CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("3"))], Decimal("120"))
     out = await render_agent_prompts_preview(db_session, agent, market)
     assert "Nessuna posizione" in out["reflection"]["note"]
+
+
+async def test_preview_reflection_includes_active_self_policy(db_session):
+    agent = _agent(db_session, instructions="trade carefully")
+    journal.append_entries(db_session, agent.id, "self_policy", ["Wait for reclaim after breakdown."])
+    db_session.commit()
+
+    market = FakeMarketPreview([CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("3"))], Decimal("120"))
+    out = await render_agent_prompts_preview(db_session, agent, market)
+
+    row = journal.active_entries(db_session, agent.id, "self_policy")[0]
+    assert f"P{row.id}: Wait for reclaim after breakdown." in out["reflection"]["user"]

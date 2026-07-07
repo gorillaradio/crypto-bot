@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Action(BaseModel):
@@ -10,6 +10,9 @@ class Action(BaseModel):
     usd_amount: Decimal | None = None
     fraction: Decimal | None = None
     rationale: str = ""
+    policy_refs: list[str] = Field(default_factory=list)
+    policy_alignment: Literal["follows", "violates", "unrelated"] = "unrelated"
+    override_reason: str = ""
 
 
 class Decision(BaseModel):

@@ -1,8 +1,13 @@
 from app.db.models import MemoryEntry
-from app.brain.context import MemoryView
+from app.brain.context import MemoryView, PolicyLine, PolicyMemoryView
+from typing import TYPE_CHECKING
 
-SECTIONS = ("coin_theses", "trade_lessons", "strategy_notes")
-SECTION_CAPS = {"coin_theses": 8, "trade_lessons": 10, "strategy_notes": 5}
+if TYPE_CHECKING:
+    from app.brain.memory import MemoryUpdate, PolicyEdit
+
+NARRATIVE_SECTIONS = ("coin_theses", "trade_lessons", "strategy_notes")
+SECTIONS = (*NARRATIVE_SECTIONS, "self_policy")
+SECTION_CAPS = {"coin_theses": 8, "trade_lessons": 10, "strategy_notes": 5, "self_policy": 8}
 
 
 def _active_q(session, agent_id: int, section: str):
@@ -35,6 +40,35 @@ def active_count(session, agent_id: int, section: str) -> int:
     return _active_q(session, agent_id, section).count()
 
 
+def policy_ref(row: MemoryEntry) -> str:
+    return f"P{row.id}"
+
+
+def _policy_id(ref: str) -> int | None:
+    if not ref or not ref.startswith("P"):
+        return None
+    try:
+        return int(ref[1:])
+    except ValueError:
+        return None
+
+
+def policy_row_for_ref(session, agent_id: int, ref: str) -> MemoryEntry | None:
+    row_id = _policy_id(ref)
+    if row_id is None:
+        return None
+    return (session.query(MemoryEntry)
+            .filter_by(id=row_id, agent_id=agent_id, section="self_policy", active=True)
+            .first())
+
+
+def policy_view(session, agent_id: int) -> PolicyMemoryView:
+    rows = _active_q(session, agent_id, "self_policy").all()
+    cap = SECTION_CAPS["self_policy"]
+    recent = rows[-cap:] if len(rows) > cap else rows
+    return PolicyMemoryView(active=[PolicyLine(policy_ref(row), row.content) for row in recent])
+
+
 def compact_view(session, agent_id: int) -> MemoryView:
     def text(section: str) -> str:
         rows = _active_q(session, agent_id, section).all()
@@ -44,6 +78,57 @@ def compact_view(session, agent_id: int) -> MemoryView:
     return MemoryView(coin_theses=text("coin_theses"),
                       trade_lessons=text("trade_lessons"),
                       strategy_notes=text("strategy_notes"))
+
+
+def _validate_policy_edits(session, agent_id: int, edits: list["PolicyEdit"]) -> None:
+    active_rows = active_entries(session, agent_id, "self_policy")
+    active_refs = {policy_ref(row) for row in active_rows}
+    projected_count = len(active_rows)
+    for edit in edits:
+        if edit.op == "add":
+            if not edit.text.strip():
+                raise ValueError("policy add requires text")
+            projected_count += 1
+        elif edit.op == "retire":
+            if not edit.policy_ref or edit.policy_ref not in active_refs:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            active_refs.remove(edit.policy_ref)
+            projected_count -= 1
+        elif edit.op == "replace":
+            if not edit.policy_ref or edit.policy_ref not in active_refs:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            if not edit.text.strip():
+                raise ValueError("policy replace requires text")
+            active_refs.remove(edit.policy_ref)
+        else:
+            raise ValueError(f"invalid policy op: {edit.op}")
+    if projected_count > SECTION_CAPS["self_policy"]:
+        raise ValueError("self_policy cap exceeded")
+
+
+def _apply_policy_edits(session, agent_id: int, edits: list["PolicyEdit"], cycle_id: str | None) -> None:
+    for edit in edits:
+        if edit.op == "add":
+            append_entries(session, agent_id, "self_policy", [edit.text], cycle_id=cycle_id)
+        elif edit.op == "retire":
+            row = policy_row_for_ref(session, agent_id, edit.policy_ref or "")
+            if row is None:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            row.active = False
+        elif edit.op == "replace":
+            row = policy_row_for_ref(session, agent_id, edit.policy_ref or "")
+            if row is None:
+                raise ValueError(f"invalid policy ref: {edit.policy_ref}")
+            row.active = False
+            append_entries(session, agent_id, "self_policy", [edit.text], cycle_id=cycle_id)
+
+
+def apply_memory_update(session, agent_id: int, update: "MemoryUpdate",
+                        cycle_id: str | None = None) -> None:
+    _validate_policy_edits(session, agent_id, update.policy_edits)
+    for section in NARRATIVE_SECTIONS:
+        append_entries(session, agent_id, section, getattr(update, section), cycle_id=cycle_id)
+    _apply_policy_edits(session, agent_id, update.policy_edits, cycle_id)
 
 
 def apply_distillation(session, agent_id: int, section: str, compacted: list[str],

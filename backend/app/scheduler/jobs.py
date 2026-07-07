@@ -7,6 +7,7 @@ from app.db.models import Agent
 from app.market.binance import BinanceClient
 from app.agents.runtime import (run_heartbeat, run_decision_guarded, universe_size,
                                  run_analyst_cycle)
+from app.agents.learning import reflect_unlearned_scores
 from app.eval.scoring_job import score_matured_decisions
 from app.feeds.rss import RssFeedAdapter
 from app.feeds.ingest import ingest_observations
@@ -59,6 +60,15 @@ async def _scoring_tick():
             session.rollback()
 
 
+async def _learning_tick():
+    with get_session() as session:
+        try:
+            await reflect_unlearned_scores(session)
+        except Exception as exc:
+            logger.error("learning tick failed: %s", exc)
+            session.rollback()
+
+
 async def _news_poll_tick():
     adapter = RssFeedAdapter()
     with get_session() as session:
@@ -75,6 +85,7 @@ def start_scheduler() -> AsyncIOScheduler:
     _scheduler.add_job(_heartbeat_tick, "interval", seconds=settings.heartbeat_seconds)
     _scheduler.add_job(_decision_tick, "interval", seconds=settings.decision_seconds)
     _scheduler.add_job(_scoring_tick, "interval", seconds=settings.scoring_seconds)
+    _scheduler.add_job(_learning_tick, "interval", seconds=settings.scoring_seconds)
     _scheduler.add_job(_news_poll_tick, "interval", seconds=settings.news_poll_seconds)
     _scheduler.start()
     return _scheduler

@@ -129,6 +129,7 @@ class DecisionScore(Base):
     n_hits: Mapped[int] = mapped_column(Integer)
     avg_return_pct: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     scored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    reflected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     __table_args__ = (UniqueConstraint("decision_record_id", "window", name="uq_decision_score_window"),)
 
 
