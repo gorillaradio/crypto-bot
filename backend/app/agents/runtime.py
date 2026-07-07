@@ -277,16 +277,14 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
     if closed_trades:
         try:
             held_symbols = [p.symbol for p in agent.positions]
-            rr = reflect(ctx.memory, closed_trades, held_symbols, agent.instructions, adapter)
+            rr = reflect(ctx.memory, ctx.policy, closed_trades, held_symbols, agent.instructions, adapter)
             _record_llm_call(session, agent, cycle_id, "reflection", trigger,
                              system=rr.system, user=rr.user, raw=rr.raw,
                              parsed_output=(rr.entries.model_dump_json()
                                             if rr.parse_status == "ok" else None),
                              parse_status=rr.parse_status, latency_ms=rr.latency_ms)
             if rr.parse_status == "ok":
-                for section in journal.NARRATIVE_SECTIONS:
-                    journal.append_entries(session, agent.id, section,
-                                           getattr(rr.entries, section), cycle_id=cycle_id)
+                journal.apply_memory_update(session, agent.id, rr.entries, cycle_id=cycle_id)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
                                   message="memoria aggiornata dopo trade chiuso"))
                 for section in journal.NARRATIVE_SECTIONS:

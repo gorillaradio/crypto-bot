@@ -46,15 +46,9 @@ The agent's operator instructions:
 {instructions}"""
 
 
-def build_reflection_prompt(memory: MemoryView, policy: PolicyMemoryView | list[ClosedTrade],
-                            closed: list[ClosedTrade] | list[str],
-                            held_symbols: list[str] | str,
-                            instructions: str | None = None) -> tuple[str, str]:
-    if isinstance(policy, list):
-        instructions = str(held_symbols)
-        held_symbols = closed
-        closed = policy
-        policy = PolicyMemoryView()
+def build_reflection_prompt(memory: MemoryView, policy: PolicyMemoryView,
+                            closed: list[ClosedTrade], held_symbols: list[str],
+                            instructions: str) -> tuple[str, str]:
     system = _REFLECT_SYSTEM.format(instructions=instructions or "(none provided)")
     lines = ["Closed trades this cycle:"]
     for t in closed:
@@ -88,15 +82,8 @@ class ReflectionResult:
     latency_ms: int = 0
 
 
-def run_reflection_result(memory: MemoryView, policy: PolicyMemoryView | list[ClosedTrade],
-                          closed: list[ClosedTrade] | list[str],
-                          held_symbols: list[str] | str, instructions=None, adapter=None) -> ReflectionResult:
-    if isinstance(policy, list):
-        adapter = instructions
-        instructions = held_symbols
-        held_symbols = closed
-        closed = policy
-        policy = PolicyMemoryView()
+def run_reflection_result(memory: MemoryView, policy: PolicyMemoryView, closed: list[ClosedTrade],
+                          held_symbols: list[str], instructions: str, adapter) -> ReflectionResult:
     system, user = build_reflection_prompt(memory, policy, closed, held_symbols, instructions)
     t0 = perf_counter()
     try:

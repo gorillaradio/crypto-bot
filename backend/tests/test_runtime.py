@@ -5,7 +5,7 @@ from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, Memory
                            DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, universe_size
 from app.brain.context import CoinSnapshot
-from app.brain.memory import ReflectionResult
+from app.brain.memory import ReflectionResult, PolicyEdit
 from app.brain.schema import Decision, Action, DecisionResult
 from app.brain import journal
 from app.brain.memory import MemoryUpdate, DistillationResult
@@ -313,7 +313,7 @@ async def test_reflection_runs_once_on_sell_and_persists(db_session):
     decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
 
     calls = []
-    def fake_reflect(memory, closed, held_symbols, instructions, adapter):
+    def fake_reflect(memory, policy, closed, held_symbols, instructions, adapter):
         calls.append(closed)
         return ReflectionResult(MemoryUpdate(coin_theses=["BTC: took profit"], trade_lessons=["green exit"]))
 
@@ -352,6 +352,57 @@ async def test_reflection_call_is_recorded(db_session):
     assert rr.latency_ms == 7 and rr.trigger == "schedule"
     assert rr.system_prompt == "RSYS" and rr.user_prompt == "RUSR"
     assert rr.cycle_id == dd.cycle_id             # decision + reflection share the cycle
+
+
+async def test_reflection_can_add_self_policy_on_sell(db_session):
+    agent = _llm_agent(db_session)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
+    market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
+    decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
+
+    def fake_reflect(memory, policy, closed, held_symbols, instructions, adapter):
+        return ReflectionResult(MemoryUpdate(policy_edits=[
+            PolicyEdit(op="add", text="Wait for fresh evidence before re-entry.", reason="Churn hurt.")
+        ]))
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=fake_reflect)
+
+    rows = journal.active_entries(db_session, agent.id, "self_policy")
+    assert [r.content for r in rows] == ["Wait for fresh evidence before re-entry."]
+
+
+async def test_invalid_policy_edit_leaves_reflection_memory_unchanged(db_session):
+    agent = _llm_agent(db_session)
+    journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: keep"])
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100")))
+    db_session.commit()
+    snap = [CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("2"))]
+    market = FakeMarketLLM(snap, Decimal("120"), (Decimal("120"), Decimal("121")))
+    decision = Decision(actions=[Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("1"))], note="exit")
+
+    def fake_reflect(memory, policy, closed, held_symbols, instructions, adapter):
+        return ReflectionResult(MemoryUpdate(
+            coin_theses=["BTC: should not apply"],
+            policy_edits=[PolicyEdit(op="retire", policy_ref="P999", reason="bad ref")],
+        ))
+
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision),
+                       reflect=fake_reflect)
+
+    assert [r.content for r in journal.active_entries(db_session, agent.id, "coin_theses")] == ["BTC: keep"]
+    assert journal.active_entries(db_session, agent.id, "self_policy") == []
+    ev = (db_session.query(Event)
+          .filter_by(agent_id=agent.id, kind="reflection")
+          .order_by(Event.id.desc())
+          .first())
+    assert "errore" in ev.message.lower() or "invalid" in ev.message.lower()
 
 
 async def test_decision_events_share_one_cycle_id(db_session):
