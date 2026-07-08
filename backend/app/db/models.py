@@ -124,7 +124,7 @@ class DecisionScore(Base):
     __tablename__ = "decision_scores"
     id: Mapped[int] = mapped_column(primary_key=True)
     decision_record_id: Mapped[int] = mapped_column(ForeignKey("decision_records.id"), index=True)
-    window: Mapped[str] = mapped_column(String(8))              # "24h" | "7d"
+    window: Mapped[str] = mapped_column(String(8))    # label finestra (settings.scoring_windows, es. "24h" | "7d")
     n_actions: Mapped[int] = mapped_column(Integer)
     n_hits: Mapped[int] = mapped_column(Integer)
     avg_return_pct: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)

@@ -17,14 +17,16 @@ export type Agent = {
 export type EquityPoint = { timestamp: string; equity_usd: string };
 export type BenchmarkPoint = { kind: string; timestamp: string; equity_usd: string };
 export type BenchmarkMetric = { return_pct: string; max_drawdown_pct: string; sharpe: string };
+// Finestra di scoring: il label ("24h", "7d", …) arriva dalla config del backend
+export type WindowHitRate = { window: string; hit_rate: string | null };
 export type AgentMetrics = {
   return_pct: string; max_drawdown_pct: string; sharpe: string;
-  hit_rate_24h: string | null; hit_rate_7d: string | null;
+  hit_rates: WindowHitRate[];
   benchmarks: Record<string, BenchmarkMetric>;
 };
 export type ModelMetrics = {
   model_name: string | null; n_scored_actions: number;
-  hit_rate_24h: string | null; hit_rate_7d: string | null;
+  hit_rates: WindowHitRate[];
 };
 export type AgentEvent = { timestamp: string; kind: string; message: string; cycle_id: string | null };
 export type Position = {

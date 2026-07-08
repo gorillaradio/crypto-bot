@@ -1,9 +1,8 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from app.core.config import settings
 from app.db.models import DecisionRecord, DecisionScore
 from app.eval.scoring import score_decision
-
-WINDOWS: dict[str, timedelta] = {"24h": timedelta(hours=24), "7d": timedelta(days=7)}
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -21,8 +20,12 @@ async def score_matured_decisions(session, market, now: datetime) -> int:
                .filter(DecisionRecord.kind == "decision",
                        DecisionRecord.parse_status.in_(("ok", "repaired")))
                .all())
+    # Finestre dalla config. Cambiare i label ri-scora le decisioni storiche mature
+    # sotto le nuove finestre (il check `already` è per coppia decisione+label);
+    # le righe con label di config precedenti restano nel DB e vengono ignorate dalle metriche.
+    windows = settings.scoring_windows
     for rec in records:
-        for window, delta in WINDOWS.items():
+        for window, delta in windows.items():
             if _as_utc(rec.created_at) + delta > now:
                 continue
             already = (session.query(DecisionScore)

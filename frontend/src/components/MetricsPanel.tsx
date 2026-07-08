@@ -25,8 +25,9 @@ export function MetricsPanel({ metrics }: { metrics: AgentMetrics | null }) {
       <Stat label="Return" value={pct(metrics.return_pct)} />
       <Stat label="Max drawdown" value={pct(metrics.max_drawdown_pct)} />
       <Stat label="Sharpe" value={num(metrics.sharpe)} />
-      <Stat label="Hit-rate 24h" value={pct(metrics.hit_rate_24h)} />
-      <Stat label="Hit-rate 7d" value={pct(metrics.hit_rate_7d)} />
+      {metrics.hit_rates.map((h) => (
+        <Stat key={h.window} label={`Hit-rate ${h.window}`} value={pct(h.hit_rate)} />
+      ))}
       {Object.entries(metrics.benchmarks).map(([kind, m]) => (
         <Stat key={kind} label={`${kind} return`} value={pct(m.return_pct)} />
       ))}

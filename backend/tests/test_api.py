@@ -526,8 +526,10 @@ def test_agent_metrics_reports_return_drawdown_and_hitrate(db_session):
     body = client.get(f"/api/agents/{agent.id}/metrics").json()
     assert Decimal(body["return_pct"]) == Decimal("-10")            # 100 → 90
     assert Decimal(body["max_drawdown_pct"]) == Decimal("25")       # 120 → 90
-    assert Decimal(body["hit_rate_24h"]) == Decimal("75")
-    assert body["hit_rate_7d"] is None                             # no 7d scores
+    hr = {h["window"]: h["hit_rate"] for h in body["hit_rates"]}
+    assert Decimal(hr["24h"]) == Decimal("75")
+    assert hr["7d"] is None                                        # no 7d scores
+    assert [h["window"] for h in body["hit_rates"]] == ["24h", "7d"]   # short→long
     assert Decimal(body["benchmarks"]["hodl_btc"]["return_pct"]) == Decimal("10")
 
 
@@ -535,7 +537,21 @@ def test_agent_metrics_unknown_agent_is_all_zero(db_session):
     client = _client(db_session)
     body = client.get("/api/agents/9999/metrics").json()
     assert Decimal(body["return_pct"]) == Decimal("0")
-    assert body["benchmarks"] == {} and body["hit_rate_24h"] is None
+    assert body["benchmarks"] == {}
+    assert all(h["hit_rate"] is None for h in body["hit_rates"])
+
+
+def test_agent_metrics_windows_follow_settings(db_session, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "scoring_window_short", "12h")
+    monkeypatch.setattr(settings, "scoring_window_long", "3d")
+    client = _client(db_session)
+    aid = _mk(client, name="Wnd").json()["id"]
+    _decision_with_score(db_session, aid, "deepseek/x", "12h", 2, 1)
+    body = client.get(f"/api/agents/{aid}/metrics").json()
+    hr = {h["window"]: h["hit_rate"] for h in body["hit_rates"]}
+    assert set(hr) == {"12h", "3d"}
+    assert Decimal(hr["12h"]) == Decimal("50")
 
 
 def test_model_metrics_aggregates_hitrate_by_model(db_session):
@@ -545,9 +561,25 @@ def test_model_metrics_aggregates_hitrate_by_model(db_session):
     _decision_with_score(db_session, aid, "deepseek/x", "24h", 2, 1)
     _decision_with_score(db_session, aid, "glm/y", "24h", 1, 0)
     body = client.get("/api/metrics/by-model").json()
-    by_model = {m["model_name"]: m for m in body}
-    assert Decimal(by_model["deepseek/x"]["hit_rate_24h"]) == Decimal("75")   # 3 hits / 4 actions
-    assert Decimal(by_model["glm/y"]["hit_rate_24h"]) == Decimal("0")
+    by_model = {m["model_name"]: {h["window"]: h["hit_rate"] for h in m["hit_rates"]}
+                for m in body}
+    assert Decimal(by_model["deepseek/x"]["24h"]) == Decimal("75")   # 3 hits / 4 actions
+    assert Decimal(by_model["glm/y"]["24h"]) == Decimal("0")
+
+
+def test_model_metrics_ignores_stale_window_labels(db_session):
+    # Righe DecisionScore scritte con label di una config precedente non devono
+    # né crashare né inquinare i conteggi delle finestre correnti.
+    client = _client(db_session)
+    aid = _mk(client, name="Stale").json()["id"]
+    _decision_with_score(db_session, aid, "deepseek/x", "24h", 2, 2)
+    _decision_with_score(db_session, aid, "deepseek/x", "48h", 5, 0)   # label storica
+    body = client.get("/api/metrics/by-model").json()
+    m = body[0]
+    assert m["n_scored_actions"] == 2                                  # solo finestre correnti
+    hr = {h["window"]: h["hit_rate"] for h in m["hit_rates"]}
+    assert Decimal(hr["24h"]) == Decimal("100")
+    assert "48h" not in hr
 
 
 def test_get_memory_journal_returns_entries_newest_first(db_session):
