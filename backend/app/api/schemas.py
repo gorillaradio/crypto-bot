@@ -57,20 +57,23 @@ class BenchmarkMetric(BaseModel):
     sharpe: Decimal
 
 
+class WindowHitRate(BaseModel):
+    window: str                          # label della finestra (settings.scoring_windows, es. "24h")
+    hit_rate: Decimal | None = None
+
+
 class AgentMetricsOut(BaseModel):
     return_pct: Decimal
     max_drawdown_pct: Decimal
     sharpe: Decimal
-    hit_rate_24h: Decimal | None = None
-    hit_rate_7d: Decimal | None = None
+    hit_rates: list[WindowHitRate]       # in ordine short→long
     benchmarks: dict[str, BenchmarkMetric]
 
 
 class ModelMetricsOut(BaseModel):
     model_name: str | None = None
     n_scored_actions: int
-    hit_rate_24h: Decimal | None = None
-    hit_rate_7d: Decimal | None = None
+    hit_rates: list[WindowHitRate]       # in ordine short→long
 
 
 class EventOut(BaseModel):
@@ -104,10 +107,27 @@ class DecisionRecordOut(BaseModel):
     created_at: datetime
 
 
+class TradeOut(BaseModel):
+    id: int
+    symbol: str
+    side: str
+    quantity: Decimal
+    price: Decimal
+    fee: Decimal
+    timestamp: datetime
+
+
+class PolicyLineOut(BaseModel):
+    ref: str
+    content: str
+
+
 class MemoryOut(BaseModel):
     coin_theses: str
     trade_lessons: str
     strategy_notes: str
+    self_policy: list[PolicyLineOut] = []
+    caps: dict[str, int] = {}
 
 
 class MemoryEntryOut(BaseModel):

@@ -8,24 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Sparkline } from "./Sparkline";
-
-const usd = (s: string | number) =>
-  `$${Number(s).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-const price = (s: string) => {
-  const n = Number(s);
-  if (n >= 1) return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-  if (n >= 0.01) return `$${n.toFixed(4)}`;
-  return `$${n.toPrecision(2)}`; // sub-cent: keep significant figures (e.g. $0.0000024)
-};
-const qty = (s: string) => {
-  const n = Number(s);
-  return n >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: 4 })
-                : n.toLocaleString("en-US", { maximumFractionDigits: 8 });
-};
-const pct = (s: string) => {
-  const n = Number(s);
-  return `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(2)}%`;
-};
+import { usd, price, qty, pct } from "@/lib/format";
 
 // Shared cell classes: original .ptable th/td — right-aligned, nowrap, tabular-nums mono
 const thBase = "text-right text-xs font-medium text-muted-foreground whitespace-nowrap py-0 pb-2 px-0";

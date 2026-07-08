@@ -17,14 +17,16 @@ export type Agent = {
 export type EquityPoint = { timestamp: string; equity_usd: string };
 export type BenchmarkPoint = { kind: string; timestamp: string; equity_usd: string };
 export type BenchmarkMetric = { return_pct: string; max_drawdown_pct: string; sharpe: string };
+// Finestra di scoring: il label ("24h", "7d", …) arriva dalla config del backend
+export type WindowHitRate = { window: string; hit_rate: string | null };
 export type AgentMetrics = {
   return_pct: string; max_drawdown_pct: string; sharpe: string;
-  hit_rate_24h: string | null; hit_rate_7d: string | null;
+  hit_rates: WindowHitRate[];
   benchmarks: Record<string, BenchmarkMetric>;
 };
 export type ModelMetrics = {
   model_name: string | null; n_scored_actions: number;
-  hit_rate_24h: string | null; hit_rate_7d: string | null;
+  hit_rates: WindowHitRate[];
 };
 export type AgentEvent = { timestamp: string; kind: string; message: string; cycle_id: string | null };
 export type Position = {
@@ -36,10 +38,22 @@ export type Position = {
   unrealized_pnl_pct: string | null;
   market_value: string | null;
 };
+export type Trade = {
+  id: number;
+  symbol: string;
+  side: string; // "BUY" | "SELL"
+  quantity: string;
+  price: string;
+  fee: string;
+  timestamp: string;
+};
+export type PolicyLine = { ref: string; content: string };
 export type AgentMemory = {
   coin_theses: string;
   trade_lessons: string;
   strategy_notes: string;
+  self_policy: PolicyLine[];
+  caps: Record<string, number>;
 };
 export type MemoryEntry = {
   section: string; content: string; cycle_id: string | null; active: boolean; created_at: string;
@@ -80,6 +94,7 @@ export const getBenchmarks = (id: number) => get<BenchmarkPoint[]>(`/api/agents/
 export const getAgentMetrics = (id: number) => get<AgentMetrics>(`/api/agents/${id}/metrics`);
 export const getModelMetrics = () => get<ModelMetrics[]>("/api/metrics/by-model");
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
+export const getTrades = (id: number) => get<Trade[]>(`/api/agents/${id}/trades`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
 export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);

@@ -58,7 +58,7 @@ export function Sparkline({ symbol }: { symbol: string }) {
 
   return (
     // .spark: inline-flex, items-center, gap-8px; .pos/.neg apply the green/red color
-    // from index.css (.pos { color: var(--ef-pos) } / .neg { color: var(--ef-neg) })
+    // from index.css (.pos { color: var(--pos) } / .neg { color: var(--neg) })
     <span className={`spark ${cls} inline-flex items-center gap-2`}>
       <svg
         width={W}

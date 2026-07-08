@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  getAgents, getEquity, getEvents, getPositions, getMemory, getMemoryJournal, getDecisions,
+  getAgents, getEquity, getEvents, getTrades, getPositions, getMemory, getMemoryJournal, getDecisions,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   getBenchmarks, getAgentMetrics, getModelMetrics, getObservations,
-  type Agent, type EquityPoint, type AgentEvent, type Position, type AgentMemory, type Role,
+  type Agent, type EquityPoint, type AgentEvent, type Trade, type Position, type AgentMemory, type Role,
   type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry, type Decision,
   type Observation,
 } from "./api";
@@ -14,9 +14,9 @@ import { BenchmarkChart } from "./components/BenchmarkChart";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { ModelMetricsPanel } from "./components/ModelMetricsPanel";
 import { PositionsTable } from "./components/PositionsTable";
+import { TradesTable } from "./components/TradesTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { MemoryPanel } from "./components/MemoryPanel";
-import { MemoryJournal } from "./components/MemoryJournal";
 import { DecisionsPanel } from "./components/DecisionsPanel";
 import { ObservationsFeed } from "./components/ObservationsFeed";
 import { PromptPanel } from "./components/PromptPanel";
@@ -59,6 +59,16 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
+// Intestazione condivisa delle card: titolo + una riga che dice cosa si sta guardando.
+function PanelHead({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
 function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost: () => void }) {
   const isAdmin = role === "admin";
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -68,6 +78,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [modelMetrics, setModelMetrics] = useState<ModelMetrics[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [trades, setTrades] = useState<Trade[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
@@ -100,11 +111,13 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     if (selId == null) return;
     setMemory(null);
     setJournalEntries([]);
+    setTrades([]);
     const load = () => {
       getEquity(selId).then(setEquity).catch(onErr);
       getBenchmarks(selId).then(setBenchmarks).catch(onErr);
       getAgentMetrics(selId).then(setMetrics).catch(onErr);
       getEvents(selId).then(setEvents).catch(onErr);
+      getTrades(selId).then(setTrades).catch(onErr);
       getPositions(selId).then(setPositions).catch(onErr);
       getDecisions(selId).then(setDecisions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);
@@ -225,36 +238,42 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <Card>
                 <CardContent>
-                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Posizioni</h2>
+                  <PanelHead title="Posizioni" hint="cosa ha in portafoglio adesso" />
                   <PositionsTable positions={positions} />
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Attività</h2>
-                  <EventsFeed events={events} />
+                  <PanelHead title="Operazioni" hint="tutti gli acquisti e le vendite eseguiti" />
+                  <TradesTable trades={trades} />
                 </CardContent>
               </Card>
             </div>
 
             <Card>
               <CardContent>
-                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Memoria</h2>
-                {memory ? <MemoryPanel memory={memory} /> : <p className="empty">…</p>}
-                <MemoryJournal entries={journalEntries} />
+                <PanelHead title="Attività" hint="il diario delle decisioni: cosa ha fatto e perché" />
+                <EventsFeed events={events} />
               </CardContent>
             </Card>
 
             <Card>
               <CardContent>
-                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Decisioni</h2>
+                <PanelHead title="Memoria" hint="cosa ha imparato e le regole che si è dato" />
+                <MemoryPanel memory={memory} entries={journalEntries} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent>
+                <PanelHead title="Decisioni" hint="telemetria delle chiamate al modello" />
                 <DecisionsPanel decisions={decisions} />
               </CardContent>
             </Card>
 
             <Card>
               <CardContent>
-                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Osservazioni (news)</h2>
+                <PanelHead title="Osservazioni" hint="le news che arrivano agli agenti" />
                 <ObservationsFeed observations={observations} />
               </CardContent>
             </Card>
@@ -262,7 +281,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             {selId !== null && sel && (
               <Card>
                 <CardContent>
-                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Market brief</h2>
+                  <PanelHead title="Market brief" hint="la sintesi di mercato dell'analista, condivisa da tutti" />
                   <MarketBriefPanel agentId={selId} />
                 </CardContent>
               </Card>
@@ -271,7 +290,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             {selId !== null && (
               <Card>
                 <CardContent>
-                  <h2 className="text-sm font-semibold text-muted-foreground mb-3">Prompt (inviati all'LLM)</h2>
+                  <PanelHead title="Prompt" hint="i testi inviati all'LLM, così come li vede" />
                   <PromptPanel agentId={selId} />
                 </CardContent>
               </Card>

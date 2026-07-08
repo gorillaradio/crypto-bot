@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PositionOut, PromptPreviewOut
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
 from app.brain.brief_store import latest_valid_brief, filter_brief_for
@@ -184,8 +184,8 @@ def get_agent_metrics(agent_id: int, session=Depends(session_dep), _: str = Depe
         return_pct=total_return_pct(eq),
         max_drawdown_pct=max_drawdown_pct(eq),
         sharpe=sharpe(eq),
-        hit_rate_24h=_hit_rate("24h"),
-        hit_rate_7d=_hit_rate("7d"),
+        hit_rates=[WindowHitRate(window=w, hit_rate=_hit_rate(w))
+                   for w in settings.scoring_windows],
         benchmarks=benchmarks)
 
 
@@ -195,27 +195,43 @@ def get_model_metrics(session=Depends(session_dep), _: str = Depends(require_vie
                           DecisionScore.n_hits, DecisionScore.n_actions)
             .join(DecisionScore, DecisionScore.decision_record_id == DecisionRecord.id)
             .filter(DecisionRecord.kind == "decision").all())
+    labels = list(settings.scoring_windows)
     agg: dict = {}
     for model_name, window, nh, na in rows:
-        d = agg.setdefault(model_name, {"24h": [0, 0], "7d": [0, 0]})
-        d[window][0] += nh
-        d[window][1] += na
+        d = agg.setdefault(model_name, {w: [0, 0] for w in labels})
+        if window in d:                    # righe con label di config precedenti: ignorate
+            d[window][0] += nh
+            d[window][1] += na
     return [
         ModelMetricsOut(
             model_name=model_name,
-            n_scored_actions=d["24h"][1] + d["7d"][1],
-            hit_rate_24h=hit_rate(*d["24h"]),
-            hit_rate_7d=hit_rate(*d["7d"]))
+            n_scored_actions=sum(v[1] for v in d.values()),
+            hit_rates=[WindowHitRate(window=w, hit_rate=hit_rate(*d[w])) for w in labels])
         for model_name, d in agg.items()
     ]
 
 
+@router.get("/agents/{agent_id}/trades", response_model=list[TradeOut])
+def get_trades(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
+    return (
+        session.query(Trade)
+        .filter_by(agent_id=agent_id)
+        .order_by(Trade.timestamp.desc(), Trade.id.desc())
+        .limit(100)
+        .all()
+    )
+
+
 @router.get("/agents/{agent_id}/memory", response_model=MemoryOut)
 def get_memory(agent_id: int, session=Depends(session_dep), _: str = Depends(require_viewer_or_admin)):
-    from app.brain.journal import compact_view
+    from app.brain.journal import SECTION_CAPS, compact_view, policy_view
     view = compact_view(session, agent_id)
+    policy = policy_view(session, agent_id)
     return MemoryOut(coin_theses=view.coin_theses, trade_lessons=view.trade_lessons,
-                     strategy_notes=view.strategy_notes)
+                     strategy_notes=view.strategy_notes,
+                     self_policy=[PolicyLineOut(ref=line.ref, content=line.content)
+                                  for line in policy.active],
+                     caps=dict(SECTION_CAPS))
 
 
 @router.get("/agents/{agent_id}/memory/journal", response_model=list[MemoryEntryOut])

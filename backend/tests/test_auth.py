@@ -142,5 +142,13 @@ def test_memory_journal_requires_a_session(client, db_session):
     assert client.get("/api/agents/1/memory/journal").status_code == 200   # viewer can read
 
 
-def test_no_policy_mutation_endpoint_exists(client):
-    assert client.post("/api/agents/1/memory/policy", json={}).status_code == 404
+def test_no_policy_mutation_endpoint_exists():
+    # Le policy sono solo LLM-authored: nessun endpoint HTTP deve mutarle.
+    # Verifica diretta sulle route (indipendente dall'ambiente): un POST nudo
+    # colpirebbe il catch-all StaticFiles della SPA e darebbe 405, non 404.
+    mutators = {"POST", "PUT", "PATCH", "DELETE"}
+    assert not any(
+        "memory/policy" in getattr(r, "path", "")
+        and (getattr(r, "methods", None) or set()) & mutators
+        for r in app.routes
+    )
