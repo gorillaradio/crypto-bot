@@ -218,6 +218,8 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
         result = brain_decide(ctx, adapter)
     except Exception as exc:
         session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
+                          payload={"status": "error", "detail": str(exc),
+                                   "wake_reason": (str(wake_reason) if wake_reason else None)},
                           message=f"ciclo decisione (LLM): errore — {exc}"))
         session.commit()
         return
@@ -226,7 +228,8 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
     trigger = trigger or ("breach" if wake_reason else "schedule")
 
     held = {p.symbol: p for p in agent.positions}
-    actions = skipped = errors = 0
+    actions = errors = 0
+    skipped: list[dict] = []
     closed_trades: list[ClosedTrade] = []
     for action in decision.actions:
         try:
@@ -241,27 +244,33 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                 if amount > affordable:
                     amount = affordable
                 if amount < settings.min_trade_usd:
-                    skipped += 1; continue
+                    skipped.append({"type": "BUY", "symbol": action.symbol,
+                                    "reason": "importo sotto il minimo"})
+                    continue
                 _bid, ask = await market.get_book_ticker(action.symbol)
-                execute_buy(session, agent, action.symbol, amount, ask, cycle_id=cycle_id)
-                _append_rationale(session, agent, action.rationale, cycle_id)
+                execute_buy(session, agent, action.symbol, amount, ask,
+                            cycle_id=cycle_id, rationale=action.rationale)
                 session.refresh(agent)
                 held = {p.symbol: p for p in agent.positions}; actions += 1
             elif action.type == "SELL" and action.symbol in held:
                 frac = action.fraction if action.fraction is not None else Decimal("1")
                 qty = held[action.symbol].quantity * frac
                 if qty <= 0:
-                    skipped += 1; continue
+                    skipped.append({"type": "SELL", "symbol": action.symbol,
+                                    "reason": "quantità nulla"})
+                    continue
                 avg_cost = held[action.symbol].avg_price
                 bid, _ask = await market.get_book_ticker(action.symbol)
-                execute_sell(session, agent, action.symbol, qty, bid, cycle_id=cycle_id)
+                execute_sell(session, agent, action.symbol, qty, bid,
+                             cycle_id=cycle_id, rationale=action.rationale)
                 realized = ((bid - avg_cost) / avg_cost * Decimal("100")) if avg_cost else Decimal("0")
                 closed_trades.append(ClosedTrade(symbol=action.symbol, qty=qty, sell_price=bid,
                                                  avg_cost=avg_cost, realized_pnl_pct=realized))
-                _append_rationale(session, agent, action.rationale, cycle_id)
                 held = {p.symbol: p for p in agent.positions}; actions += 1
             else:
-                skipped += 1
+                skipped.append({"type": action.type, "symbol": action.symbol,
+                                "reason": ("coin fuori universo" if action.type == "BUY"
+                                           else "posizione inesistente")})
         except Exception:
             errors += 1
     note = decision.note or "(no note)"
@@ -271,7 +280,12 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                      parsed_output=decision.model_dump_json(),
                      parse_status=result.parse_status, latency_ms=result.latency_ms)
     session.add(Event(agent_id=agent.id, kind="decision", cycle_id=cycle_id,
-                      message=f"{kind_label}: {note} — {actions} operazioni, {skipped} saltate, {errors} errori"))
+                      payload={"status": "ok", "note": decision.note or "",
+                               "executed": actions, "skipped": skipped,
+                               "skipped_count": len(skipped), "errors": errors,
+                               "trigger": trigger,
+                               "wake_reason": (str(wake_reason) if wake_reason else None)},
+                      message=f"{kind_label}: {note} — {actions} operazioni, {len(skipped)} saltate, {errors} errori"))
     session.commit()
 
     if closed_trades:
@@ -293,6 +307,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                                  parsed_output=rr.entries.model_dump_json(),
                                  parse_status=rr.parse_status, latency_ms=rr.latency_ms)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
+                                  payload={"status": "ok"},
                                   message="memoria aggiornata dopo trade chiuso"))
                 for section in journal.NARRATIVE_SECTIONS:
                     if journal.active_count(session, agent.id, section) > journal.SECTION_CAPS[section]:
@@ -307,6 +322,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                         if dres.parse_status == "ok":
                             journal.apply_distillation(session, agent.id, section, dres.entries, cycle_id=cycle_id)
                             session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
+                                              payload={"status": "ok", "distilled": section},
                                               message=f"memoria distillata: {section}"))
             else:
                 _record_llm_call(session, agent, cycle_id, "reflection", trigger,
@@ -314,16 +330,13 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                                  parsed_output=None,
                                  parse_status=rr.parse_status, latency_ms=rr.latency_ms)
                 session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
+                                  payload={"status": "invalid"},
                                   message="reflection: risposta non valida, memoria invariata"))
         except Exception as exc:
             session.add(Event(agent_id=agent.id, kind="reflection", cycle_id=cycle_id,
+                              payload={"status": "error", "detail": str(exc)},
                               message=f"reflection: errore — {exc}"))
         session.commit()
-
-
-def _append_rationale(session, agent, rationale: str, cycle_id: str | None = None) -> None:
-    if rationale:
-        session.add(Event(agent_id=agent.id, kind="reasoning", cycle_id=cycle_id, message=rationale))
 
 
 def _record_llm_call(session, agent, cycle_id, kind, trigger, *,
