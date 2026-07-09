@@ -1,4 +1,4 @@
-"""Backfill una-tantum dei payload sugli eventi storici (migrazione b2c3d4e5f6a7).
+"""Backfill una-tantum dei payload sugli eventi storici (migrazione c4d5e6f7a8b9).
 
 Le regex sono quelle che il frontend usava per riparsare i message; vivono qui
 da ora in poi, usate solo dal backfill. Gli eventi nuovi nascono già col payload.
