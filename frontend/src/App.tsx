@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  getAgents, getEquity, getEvents, getTrades, getPositions, getMemory, getMemoryJournal, getDecisions,
+  getAgents, getEquity, getEvents, getTrades, getPositions, getClosedPositions, getMemory, getMemoryJournal, getDecisions,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   getBenchmarks, getAgentMetrics, getModelMetrics, getObservations,
-  type Agent, type EquityPoint, type AgentEvent, type Trade, type Position, type AgentMemory, type Role,
+  type Agent, type EquityPoint, type AgentEvent, type Trade, type Position, type ClosedPosition, type AgentMemory, type Role,
   type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry, type Decision,
   type Observation,
 } from "./api";
@@ -14,8 +14,10 @@ import { BenchmarkChart } from "./components/BenchmarkChart";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { ModelMetricsPanel } from "./components/ModelMetricsPanel";
 import { PositionsTable } from "./components/PositionsTable";
+import { ClosedPositionsTable } from "./components/ClosedPositionsTable";
 import { TradesTable } from "./components/TradesTable";
 import { EventsFeed } from "./components/EventsFeed";
+import { HealthStrip } from "./components/HealthStrip";
 import { MemoryPanel } from "./components/MemoryPanel";
 import { DecisionsPanel } from "./components/DecisionsPanel";
 import { ObservationsFeed } from "./components/ObservationsFeed";
@@ -80,6 +82,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
@@ -112,6 +115,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     setMemory(null);
     setJournalEntries([]);
     setTrades([]);
+    setClosedPositions([]);
     const load = () => {
       getEquity(selId).then(setEquity).catch(onErr);
       getBenchmarks(selId).then(setBenchmarks).catch(onErr);
@@ -119,6 +123,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       getEvents(selId).then(setEvents).catch(onErr);
       getTrades(selId).then(setTrades).catch(onErr);
       getPositions(selId).then(setPositions).catch(onErr);
+      getClosedPositions(selId).then(setClosedPositions).catch(onErr);
       getDecisions(selId).then(setDecisions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);
       getMemoryJournal(selId).then(setJournalEntries).catch(onErr);
@@ -222,6 +227,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <Stat label="Posizioni">{positions.length}</Stat>
             </section>
 
+            <HealthStrip events={events} decisionSeconds={sel.decision_seconds} />
+
             <Card>
               <CardContent>
                 <div className="flex flex-wrap items-baseline gap-3 mb-3">
@@ -238,8 +245,10 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <Card>
                 <CardContent>
-                  <PanelHead title="Posizioni" hint="cosa ha in portafoglio adesso" />
+                  <PanelHead title="Posizioni" hint="cosa ha in portafoglio adesso, e la vita delle posizioni chiuse" />
                   <PositionsTable positions={positions} events={events} />
+                  <h3 className="text-xs font-semibold text-muted-foreground mt-5 mb-2 tracking-wide">CHIUSE</h3>
+                  <ClosedPositionsTable closed={closedPositions} />
                 </CardContent>
               </Card>
               <Card>
