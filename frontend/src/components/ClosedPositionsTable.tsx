@@ -21,31 +21,39 @@ export function ClosedPositionsTable({ closed }: { closed: ClosedPosition[] }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {closed.map((c, i) => {
-          const usdVal = Number(c.realized_total_usd);
-          const cls = usdVal >= 0 ? "pos" : "neg";
-          return (
-            <TableRow key={`${c.symbol}-${c.closed_at}-${i}`}>
-              <TableCell className="text-left font-semibold">{c.symbol.replace(/USDT$/, "")}</TableCell>
-              <TableCell className="text-left text-xs">
-                {when(c.opened_at)} → {when(c.closed_at)}
-                {c.close_cycle_id != null && (
-                  <div>
-                    <a className="text-xs" href={`#cycle-${c.close_cycle_id}`}>perché chiusa ›</a>
-                  </div>
-                )}
-              </TableCell>
-              <TableCell className="text-right text-xs">{held(c.held_minutes)}</TableCell>
-              <TableCell className="text-right text-xs">{c.invested_usd ? `~${usd(c.invested_usd)}` : "—"}</TableCell>
-              <TableCell className="text-right text-xs">
-                <span className={cls}>
-                  {c.realized_total_pct != null && `${pct(c.realized_total_pct)} `}
-                  ({usdVal >= 0 ? "+" : "−"}{usd(Math.abs(usdVal))})
-                </span>
-              </TableCell>
-            </TableRow>
-          );
-        })}
+        {(() => {
+          const seen = new Set<string>();
+          return closed.map((c, i) => {
+            const usdVal = Number(c.realized_total_usd);
+            const cls = usdVal >= 0 ? "pos" : "neg";
+            const symbol = c.symbol.replace(/USDT$/, "");
+            // La lista arriva dal più recente: solo la prima occorrenza per symbol
+            // (la più recente) prende l'id, per il link dal diario.
+            const isFirst = !seen.has(symbol);
+            seen.add(symbol);
+            return (
+              <TableRow key={`${c.symbol}-${c.closed_at}-${i}`} id={isFirst ? `pos-closed-${symbol}` : undefined}>
+                <TableCell className="text-left font-semibold">{symbol}</TableCell>
+                <TableCell className="text-left text-xs">
+                  {when(c.opened_at)} → {when(c.closed_at)}
+                  {c.close_cycle_id != null && (
+                    <div>
+                      <a className="text-xs" href={`#cycle-${c.close_cycle_id}`}>perché chiusa ›</a>
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className="text-right text-xs">{held(c.held_minutes)}</TableCell>
+                <TableCell className="text-right text-xs">{c.invested_usd ? `~${usd(c.invested_usd)}` : "—"}</TableCell>
+                <TableCell className="text-right text-xs">
+                  <span className={cls}>
+                    {c.realized_total_pct != null && `${pct(c.realized_total_pct)} `}
+                    ({usdVal >= 0 ? "+" : "−"}{usd(Math.abs(usdVal))})
+                  </span>
+                </TableCell>
+              </TableRow>
+            );
+          });
+        })()}
       </TableBody>
     </Table>
   );

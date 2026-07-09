@@ -101,7 +101,9 @@ function OpRow({ op, policy }: { op: Op; policy: PolicyLine[] }) {
   return (
     <li className="op-row">
       <span className="side-pill">{sell ? "VENDITA" : "ACQUISTO"}</span>
-      <a className="op-sym" href={`#pos-${sym(p.symbol)}`}>{sym(p.symbol)}</a>
+      <a className="op-sym" href={p.position_summary ? `#pos-closed-${sym(p.symbol)}` : `#pos-${sym(p.symbol)}`}>
+        {sym(p.symbol)}
+      </a>
       {partial && <span className="op-frac num">venduto il {Math.round(frac! * 100)}%</span>}
       {sell && pnlPct != null && (
         <span className={`num ${pnlCls(pnlPct)}`}>

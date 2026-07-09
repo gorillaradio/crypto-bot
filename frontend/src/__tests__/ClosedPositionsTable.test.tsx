@@ -29,4 +29,12 @@ describe("ClosedPositionsTable", () => {
     render(<ClosedPositionsTable closed={[]} />);
     expect(screen.getByText(/nessuna posizione chiusa/i)).toBeInTheDocument();
   });
+
+  it("solo la chiusura più recente per symbol porta l'id per il link dal diario", () => {
+    const older = { ...row, closed_at: "2026-07-08T10:21:00Z" };
+    const { container } = render(<ClosedPositionsTable closed={[row, older]} />);
+    const rows = container.querySelectorAll("tbody tr");
+    expect(rows[0].id).toBe("pos-closed-SYN");
+    expect(rows[1].id).toBe("");
+  });
 });

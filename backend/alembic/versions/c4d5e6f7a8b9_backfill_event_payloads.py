@@ -60,6 +60,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # ATTENZIONE: azzera payload/opened_at/invested_usd/realized_usd su TUTTE le
+    # righe, non solo quelle backfillate qui — incluso quanto scritto dall'app
+    # dopo questa migrazione. Non reversibile senza perdita dati.
     conn = op.get_bind()
     conn.execute(events.update().values(payload=None))
     conn.execute(positions.update().values(opened_at=None, invested_usd=0, realized_usd=0))

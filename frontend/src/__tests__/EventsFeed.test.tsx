@@ -123,6 +123,32 @@ describe("EventsFeed (payload-driven)", () => {
     expect(screen.getByText("ACQUISTO")).toBeInTheDocument();
   });
 
+  it("chiusura totale (position_summary): link al simbolo punta a pos-closed", () => {
+    const events = [
+      decision("exit", "c1", "2026-07-09T10:21:00Z", { executed: 1 }),
+      ev("trade", { side: "SELL", symbol: "SYNUSDT", qty: "48.79", price: "0.4626",
+                    fee: "0.02", usd_value: "22", rationale: "same", fraction: "1",
+                    avg_cost: "0.4054", realized_pnl_pct: "14.1", realized_pnl_usd: "2.80",
+                    position_summary: { opened_at: "2026-07-09T10:10:00Z",
+                      closed_at: "2026-07-09T10:21:00Z", held_minutes: 11,
+                      invested_usd: "20", realized_total_usd: "2.80",
+                      realized_total_pct: "14.1" } }, "c1"),
+    ];
+    render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.getByText("SYN")).toHaveAttribute("href", "#pos-closed-SYN");
+  });
+
+  it("vendita parziale: link al simbolo resta su pos-SYM (posizione ancora aperta)", () => {
+    const events = [
+      decision("trim", "c1", "2026-07-09T10:21:00Z", { executed: 1 }),
+      ev("trade", { side: "SELL", symbol: "SPELLUSDT", qty: "144788", price: "0.00012",
+                    fee: "0.01", usd_value: "17", rationale: "trim", fraction: "0.5",
+                    avg_cost: "0.000104", realized_pnl_pct: "15.2", realized_pnl_usd: "2.20" }, "c1"),
+    ];
+    render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.getByText("SPELL")).toHaveAttribute("href", "#pos-SPELL");
+  });
+
   it("risveglio e guardrail marcati, empty state invariato", () => {
     const { rerender } = render(<EventsFeed events={[
       decision("woke", "c1", "2026-07-09T10:00:00Z", { wake_reason: "breach BTC" }),
