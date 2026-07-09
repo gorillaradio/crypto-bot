@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
 from app.brain.brief_store import latest_valid_brief, filter_brief_for
@@ -45,6 +45,7 @@ def _agent_out(session, agent: Agent) -> AgentOut:
         return_pct=ret,
         duration_start=agent.duration_start,
         duration_end=agent.duration_end,
+        decision_seconds=settings.decision_seconds,
     )
 
 
@@ -133,7 +134,38 @@ async def get_positions(agent_id: int, session=Depends(session_dep),
             last_price=last,
             unrealized_pnl_pct=pnl,
             market_value=(p.quantity * last) if last is not None else None,
+            opened_at=p.opened_at,
+            realized_usd=p.realized_usd or Decimal("0"),
         ))
+    return out
+
+
+@router.get("/agents/{agent_id}/positions/closed", response_model=list[ClosedPositionOut])
+def get_closed_positions(agent_id: int, session=Depends(session_dep),
+                         _: str = Depends(require_viewer_or_admin)):
+    # Lo storico vive negli eventi di chiusura totale (payload.position_summary);
+    # il filtro JSON si fa in python: volumi piccoli (<=100 righe utili).
+    rows = (session.query(Event)
+            .filter_by(agent_id=agent_id, kind="trade")
+            .order_by(Event.timestamp.desc(), Event.id.desc())
+            .limit(500).all())
+    out = []
+    for e in rows:
+        s = (e.payload or {}).get("position_summary")
+        if not s:
+            continue
+        out.append(ClosedPositionOut(
+            symbol=(e.payload or {}).get("symbol", ""),
+            opened_at=datetime.fromisoformat(s["opened_at"]) if s.get("opened_at") else None,
+            closed_at=datetime.fromisoformat(s["closed_at"]) if s.get("closed_at") else e.timestamp,
+            held_minutes=s.get("held_minutes"),
+            invested_usd=Decimal(s["invested_usd"]) if s.get("invested_usd") else None,
+            realized_total_usd=Decimal(s.get("realized_total_usd") or "0"),
+            realized_total_pct=Decimal(s["realized_total_pct"]) if s.get("realized_total_pct") else None,
+            close_cycle_id=e.cycle_id,
+        ))
+        if len(out) >= 50:
+            break
     return out
 
 
