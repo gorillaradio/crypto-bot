@@ -205,15 +205,6 @@ body {
 
 .empty { color: var(--muted-foreground); font-size: 14px; line-height: 1.5; padding: 18px 2px; }
 
-/* BUY/SELL tags: color always paired with the text label, never color alone */
-.tag {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
-  padding: 2px 7px; border-radius: 5px; text-align: center;
-}
-.tag.buy { color: var(--pos); background: var(--pos-bg); }
-.tag.sell { color: var(--neg); background: var(--neg-bg); }
-.tag.dec { color: var(--muted-foreground); background: var(--secondary); }
-
 /* --- segmented control (feed filter, memory tabs) --- */
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .seg button {
@@ -234,23 +225,14 @@ body {
   padding: 2px 0 6px;
 }
 
-/* pill badges (risveglio / errore / guardrail) and quiet footer chips */
+/* pill badges (risveglio / guardrail) */
 .badge {
   flex-shrink: 0; font-size: 10.5px; font-weight: 600;
   padding: 1px 8px; border-radius: 999px;
   background: var(--secondary); color: var(--muted-foreground);
 }
-.badge-wake { color: var(--warn); background: var(--warn-bg); }
-.badge-err { color: var(--neg); background: var(--neg-bg); }
 
-.chip {
-  font-size: 11px; padding: 1.5px 9px; border-radius: 999px;
-  background: var(--secondary); color: var(--muted-foreground);
-}
-.chip-warn { color: var(--warn); background: var(--warn-bg); }
-.chip-err { color: var(--neg); background: var(--neg-bg); }
-
-/* ---- Attività: il diario delle decisioni, un blocco per ciclo ---- */
+/* ---- Attività: il diario "fatto → motivo", un blocco per ciclo ---- */
 .feed-bar {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
@@ -264,27 +246,33 @@ body {
 .cycles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 15px; }
 .cycle { display: flex; flex-direction: column; gap: 7px; }
 
-/* head: time · badge (solo eccezioni) · la nota dell'agente come titolo */
-.cycle-head { display: flex; gap: 10px; align-items: baseline; }
+.cycle-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .cycle-time { color: var(--muted-foreground); font-size: 11px; flex-shrink: 0; }
-.cycle-note { font-size: 13px; font-weight: 500; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
-.cycle-note.is-err { color: var(--neg); }
-.cycle-note-none { color: var(--muted-foreground); font-weight: 400; font-style: italic; }
 
-/* moves hang off the head on a hairline thread; each carries its own "why" */
-.cycle-moves {
-  list-style: none; margin: 0 0 0 12px; padding: 2px 0 2px 14px;
-  border-left: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 8px;
+/* fatto → motivo */
+.fact { font-size: 13.5px; font-weight: 600; }
+.fact.is-err { color: var(--neg); }
+.fact-quiet { color: var(--muted-foreground); font-size: 13px; font-weight: 500; }
+.waitrow { opacity: .72; }
+.side-pill {
+  display: inline-block; min-width: 72px; text-align: center;
+  font-size: 10px; letter-spacing: .09em; font-weight: 700;
+  color: var(--muted-foreground); background: var(--secondary);
+  border-radius: 4px; padding: 2px 6px; margin-right: 8px;
 }
-.move { display: flex; gap: 9px; align-items: baseline; }
-.move .tag { flex-shrink: 0; min-width: 46px; }
-.move-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.move-line { font-size: 13px; overflow-wrap: anywhere; }
-.move-line b { font-weight: 650; }
-.move-why { font-size: 12px; color: var(--muted-foreground); line-height: 1.5; max-width: 68ch; }
-
-.cycle-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: 26px; }
+.cycle-ops { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.op-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 3px 0; }
+.op-sym { font-weight: 700; }
+.op-frac { color: var(--muted-foreground); font-size: 12.5px; }
+.why-line { margin-top: 4px; font-size: 13px; }
+.why-label { color: var(--muted-foreground); opacity: .7; font-size: 10.5px; letter-spacing: .1em; font-weight: 700; }
+.quote { color: var(--muted-foreground); font-style: italic; }
+.quote::before { content: "“"; } .quote::after { content: "”"; }
+.quote-none { color: var(--muted-foreground); font-style: italic; opacity: .7; }
+.policy-ref { text-decoration: underline dotted; cursor: help; font-style: normal; }
+.raw-line { color: var(--muted-foreground); font-size: 12px; opacity: .8; }
+.op-details { font-size: 12px; color: var(--muted-foreground); }
+.op-details summary { cursor: pointer; font-size: 11.5px; }
 
 /* ---- Memoria: stato attuale + cronologia ---- */
 .mem-bar {

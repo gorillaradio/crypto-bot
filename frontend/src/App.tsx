@@ -253,7 +253,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             <Card>
               <CardContent>
                 <PanelHead title="Attività" hint="il diario delle decisioni: cosa ha fatto e perché" />
-                <EventsFeed events={events} />
+                <EventsFeed events={events} policy={memory?.self_policy ?? []} />
               </CardContent>
             </Card>
 

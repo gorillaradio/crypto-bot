@@ -1,207 +1,221 @@
 import { useMemo, useState } from "react";
-import type { AgentEvent } from "../api";
-import { hm, dayLabel, price, qty } from "@/lib/format";
+import type { AgentEvent, DecisionPayload, PolicyLine, RawPayload, TradePayload } from "../api";
+import { hm, dayLabel, usd, pct, price, qty } from "@/lib/format";
 
-/* Il backend scrive gli eventi come stringhe leggibili; qui le risolleviamo in
-   struttura per poterle impaginare come diario: un blocco per ciclo di decisione,
-   con la nota dell'agente come titolo e le operazioni (col loro perché) annidate. */
+/* Il diario risponde a "è successo questo → per questo motivo".
+   Fatti in italiano generati dai payload; la voce dell'agente (inglese) è la citazione. */
 
-// "ciclo decisione (LLM): <nota> — 2 operazioni, 1 saltate, 0 errori"
-const DECISION_RE = /^ciclo decisione( fuori ciclo)? \(LLM\): ([\s\S]*) — (\d+) operazioni, (\d+) saltate, (\d+) errori$/;
-// "ciclo decisione (LLM): errore — <eccezione>"
-const DECISION_ERR_RE = /^ciclo decisione( fuori ciclo)? \(LLM\): errore — ([\s\S]*)$/;
-// "BUY 378 ACTUSDT @ $0.0132 (fee $0.005)"
-const TRADE_RE = /^(BUY|SELL) (\S+) (\S+) @ \$(\S+) \(fee \$(\S+)\)$/;
+type Op = { p: TradePayload; ts: string };
+type Block =
+  | { type: "cycle"; key: string; ts: string; head: DecisionPayload | null;
+      ops: Op[]; looseWhys: string[]; guardrail: boolean; raws: string[] }
+  | { type: "wait-group"; key: string; from: string; to: string;
+      cycles: { ts: string; note: string }[] };
 
-type Head =
-  | { status: "ok"; wake: boolean; note: string; skipped: number; errors: number }
-  | { status: "error"; wake: boolean; text: string }
-  | { status: "raw"; wake: boolean; text: string };
+const isTrade = (p: unknown): p is TradePayload =>
+  !!p && typeof p === "object" && "side" in (p as object);
+const isRaw = (p: unknown): p is RawPayload =>
+  !!p && typeof p === "object" && "raw" in (p as object);
 
-function parseHead(message: string): Head {
-  const ok = DECISION_RE.exec(message);
-  if (ok) {
-    const note = ok[2] === "(no note)" ? "" : ok[2];
-    return { status: "ok", wake: !!ok[1], note, skipped: +ok[4], errors: +ok[5] };
-  }
-  const err = DECISION_ERR_RE.exec(message);
-  if (err) return { status: "error", wake: !!err[1], text: err[2] };
-  return { status: "raw", wake: false, text: message.replace(/^ciclo decisione \([^)]+\):\s*/, "") };
-}
-
-type ParsedTrade = { side: "BUY" | "SELL"; qty: string; symbol: string; price: string } | null;
-
-const parseTrade = (message: string): ParsedTrade => {
-  const m = TRADE_RE.exec(message);
-  return m ? { side: m[1] as "BUY" | "SELL", qty: m[2], symbol: m[3].replace(/USDT$/, ""), price: m[4] } : null;
-};
-
-const MEMORY_SECTION_LABEL: Record<string, string> = {
-  coin_theses: "tesi per coin", trade_lessons: "lezioni dai trade",
-  strategy_notes: "note di strategia", self_policy: "regole",
-};
-
-type Chip = { tone: "ok" | "warn" | "err"; label: string; title?: string };
-
-function reflectionChip(message: string): Chip {
-  if (message.startsWith("memoria aggiornata")) return { tone: "ok", label: "memoria aggiornata" };
-  const dist = /^memoria distillata: (\w+)$/.exec(message);
-  if (dist) return { tone: "ok", label: `memoria compattata (${MEMORY_SECTION_LABEL[dist[1]] ?? dist[1]})` };
-  if (message.startsWith("reflection: risposta non valida"))
-    return { tone: "warn", label: "riflessione scartata: risposta non valida" };
-  if (message.startsWith("reflection: errore"))
-    return { tone: "err", label: "riflessione fallita", title: message };
-  return { tone: "ok", label: message };
-}
-
-type Move = { trade: AgentEvent; parsed: ParsedTrade; why: string | null };
-type CycleView = {
-  key: string;
-  timestamp: string;
-  head: Head | null;          // null: gruppo senza evento decisione (es. guardrail)
-  moves: Move[];
-  looseWhys: string[];        // reasoning non abbinato a un trade
-  reflections: Chip[];
-};
-
-// Gli eventi arrivano dal più recente; quelli con lo stesso cycle_id sono contigui.
-function buildCycles(events: AgentEvent[]): CycleView[] {
+function buildBlocks(events: AgentEvent[]): Block[] {
+  // adiacenza di cycle_id (eventi dal più recente), come il vecchio buildCycles
   const groups: { cycleId: string | null; events: AgentEvent[] }[] = [];
   for (const e of events) {
     const last = groups[groups.length - 1];
     if (e.cycle_id && last && last.cycleId === e.cycle_id) last.events.push(e);
     else groups.push({ cycleId: e.cycle_id, events: [e] });
   }
-  return groups.map((g, i) => {
-    const chrono = [...g.events].reverse(); // dentro il ciclo: ordine di esecuzione
+  const cycles: Extract<Block, { type: "cycle" }>[] = groups.map((g, i) => {
+    const chrono = [...g.events].reverse();
     const decision = chrono.find((e) => e.kind === "decision");
-    const moves: Move[] = [];
+    const ops: Op[] = [];
     const looseWhys: string[] = [];
+    const raws: string[] = [];
     for (const e of chrono) {
-      if (e.kind === "trade") {
-        moves.push({ trade: e, parsed: parseTrade(e.message), why: null });
-      } else if (e.kind === "reasoning") {
-        // il rationale viene registrato subito dopo il suo trade
-        const prev = moves[moves.length - 1];
-        if (prev && prev.why === null) prev.why = e.message;
-        else looseWhys.push(e.message);
-      }
+      if (e.kind === "reflection") continue;                     // dominio striscia salute
+      const p = e.payload;
+      if (e.kind === "trade" && isTrade(p)) ops.push({ p, ts: e.timestamp });
+      else if (e.kind === "reasoning" && isRaw(p)) { if (!p.folded) looseWhys.push(p.raw); }
+      else if (e.kind === "decision" && p && !isRaw(p)) { /* head, sotto */ }
+      else raws.push(isRaw(p) ? p.raw : e.message);              // legacy/non interpretato
     }
-    return {
-      key: g.cycleId ?? `solo-${i}`,
-      timestamp: (decision ?? g.events[0]).timestamp,
-      head: decision ? parseHead(decision.message) : null,
-      moves,
-      looseWhys,
-      reflections: chrono.filter((e) => e.kind === "reflection").map((e) => reflectionChip(e.message)),
-    };
+    const head = decision && decision.payload && !isRaw(decision.payload)
+      ? (decision.payload as DecisionPayload) : null;
+    // (un decision con payload null/raw è già finito in `raws` dentro il loop)
+    return { type: "cycle" as const, key: g.cycleId ?? `solo-${i}`,
+             ts: (decision ?? g.events[0]).timestamp, head, ops, looseWhys,
+             guardrail: !g.cycleId, raws };
   });
+
+  // cicli fermi consecutivi (ok, senza ops né righe grezze) → gruppo unico
+  const out: Block[] = [];
+  for (const c of cycles) {
+    const idle = c.head?.status === "ok" && c.ops.length === 0 && c.raws.length === 0
+      && !c.guardrail && !c.head?.wake_reason;
+    const prev = out[out.length - 1];
+    if (idle && prev?.type === "wait-group") {
+      prev.cycles.push({ ts: c.ts, note: c.head?.note ?? "" });
+      prev.from = c.ts;                                          // eventi desc: from = più vecchio
+    } else if (idle) {
+      out.push({ type: "wait-group", key: `w-${c.key}`, from: c.ts, to: c.ts,
+                 cycles: [{ ts: c.ts, note: c.head?.note ?? "" }] });
+    } else out.push(c);
+  }
+  return out;
 }
 
-const plural = (n: number, uno: string, tanti: string) => `${n} ${n === 1 ? uno : tanti}`;
-
-function CycleBlock({ c }: { c: CycleView }) {
-  const head = c.head;
-  const isErr = head?.status === "error";
-  const chips: Chip[] = [];
-  if (head?.status === "ok" && head.skipped > 0)
-    chips.push({ tone: "warn", label: plural(head.skipped, "azione saltata", "azioni saltate"), title: "azioni proposte dal modello ma non eseguibili (es. importo sotto il minimo o coin fuori universo)" });
-  if (head?.status === "ok" && head.errors > 0)
-    chips.push({ tone: "err", label: plural(head.errors, "errore di esecuzione", "errori di esecuzione") });
-  chips.push(...c.reflections);
-
+/* PERCHÉ: la citazione, coi riferimenti P#### risolti in tooltip. */
+function Quote({ text, policy }: { text: string; policy: PolicyLine[] }) {
+  if (!text) return <span className="quote-none">nessuna nota dall'agente</span>;
+  const parts = text.split(/(P\d{1,6})/g);
   return (
-    <li className="cycle">
-      <header className="cycle-head">
-        <time className="cycle-time num">{hm(c.timestamp)}</time>
-        {head?.wake && <span className="badge badge-wake">risveglio</span>}
-        {isErr && <span className="badge badge-err">errore</span>}
-        {!head && <span className="badge">guardrail</span>}
-        <p className={`cycle-note${isErr ? " is-err" : ""}`}>
-          {head == null
-            ? "operazione fuori ciclo"
-            : head.status === "ok"
-              ? head.note || <span className="cycle-note-none">nessuna nota dall'agente</span>
-              : head.text}
-        </p>
-      </header>
+    <span className="quote">
+      {parts.map((part, i) => {
+        const hit = /^P\d{1,6}$/.test(part) ? policy.find((l) => l.ref === part) : undefined;
+        return hit
+          ? <abbr key={i} className="policy-ref" title={hit.content}>{part}</abbr>
+          : <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
 
-      {(c.moves.length > 0 || c.looseWhys.length > 0) && (
-        <ul className="cycle-moves">
-          {c.moves.map((m, i) => (
-            <li key={i} className="move">
-              <span className={`tag ${m.parsed?.side === "SELL" || m.trade.message.startsWith("SELL") ? "sell" : "buy"}`}>
-                {m.parsed?.side ?? (m.trade.message.startsWith("SELL") ? "SELL" : "BUY")}
-              </span>
-              <div className="move-body">
-                <span className="move-line num">
-                  {m.parsed ? (
-                    <>
-                      <b>{m.parsed.symbol}</b> {qty(m.parsed.qty)} @ {price(m.parsed.price)}
-                    </>
-                  ) : (
-                    m.trade.message
-                  )}
-                </span>
-                {m.why && <p className="move-why">{m.why}</p>}
-              </div>
-            </li>
-          ))}
-          {c.looseWhys.map((w, i) => (
-            <li key={`w-${i}`} className="move">
-              <span className="tag dec" aria-hidden="true">…</span>
-              <div className="move-body"><p className="move-why">{w}</p></div>
-            </li>
-          ))}
-        </ul>
+function Why({ note, policy }: { note: string; policy: PolicyLine[] }) {
+  return (
+    <p className="why-line">
+      <span className="why-label">PERCHÉ</span> <Quote text={note} policy={policy} />
+    </p>
+  );
+}
+
+const sym = (s: string) => s.replace(/USDT$/, "");
+const pnlCls = (n: number) => (n >= 0 ? "pos" : "neg");
+
+function OpRow({ op, policy }: { op: Op; policy: PolicyLine[] }) {
+  const p = op.p;
+  const sell = p.side === "SELL";
+  const frac = p.fraction != null ? Number(p.fraction) : null;
+  const partial = sell && frac != null && frac < 0.995;
+  const pnlPct = p.realized_pnl_pct != null ? Number(p.realized_pnl_pct) : null;
+  const pnlUsd = p.realized_pnl_usd != null ? Number(p.realized_pnl_usd) : null;
+  return (
+    <li className="op-row">
+      <span className="side-pill">{sell ? "VENDITA" : "ACQUISTO"}</span>
+      <a className="op-sym" href={`#pos-${sym(p.symbol)}`}>{sym(p.symbol)}</a>
+      {partial && <span className="op-frac num">venduto il {Math.round(frac! * 100)}%</span>}
+      {sell && pnlPct != null && (
+        <span className={`num ${pnlCls(pnlPct)}`}>
+          {pct(pnlPct)}{pnlUsd != null && <> {pnlUsd >= 0 ? "+" : "−"}{usd(Math.abs(pnlUsd))}</>}
+        </span>
       )}
+      {!sell && p.usd_value != null && (
+        <span className="op-frac num">
+          ~{usd(p.usd_value)}
+          {p.position === "new" && " · nuova posizione"}
+          {p.position === "increase" && " · posizione aumentata"}
+        </span>
+      )}
+      {sell && pnlPct == null && (
+        <span className="op-frac num">{qty(p.qty)} @ {price(p.price)}</span>
+      )}
+      <details className="op-details">
+        <summary>dettagli</summary>
+        <p className="num">
+          qty {qty(p.qty)} @ {price(p.price)} · fee {usd(p.fee)}
+          {p.avg_cost != null && <> · costo medio {price(p.avg_cost)}</>}
+        </p>
+        {p.rationale && <Quote text={p.rationale} policy={policy} />}
+      </details>
+    </li>
+  );
+}
 
-      {chips.length > 0 && (
-        <footer className="cycle-chips">
-          {chips.map((ch, i) => (
-            <span key={i} className={`chip chip-${ch.tone}`} title={ch.title}>{ch.label}</span>
-          ))}
-        </footer>
+function CycleBlock({ c, policy }: { c: Extract<Block, { type: "cycle" }>; policy: PolicyLine[] }) {
+  const err = c.head?.status === "error";
+  return (
+    <li className="cycle" id={c.guardrail ? undefined : `cycle-${c.key}`}>
+      <header className="cycle-head">
+        <time className="cycle-time num">{hm(c.ts)}</time>
+        {c.head?.wake_reason && <span className="badge">risveglio</span>}
+        {err && <span className="fact is-err">Ciclo fallito{c.head?.detail ? ` — ${c.head.detail}` : ""}</span>}
+      </header>
+      {c.guardrail && c.ops.length > 0 && (
+        <p className="fact-quiet">Intervento automatico (guardrail)</p>
+      )}
+      {c.ops.length > 0 && (
+        <ul className="cycle-ops">{c.ops.map((op, i) => <OpRow key={i} op={op} policy={policy} />)}</ul>
+      )}
+      {c.head?.status === "ok" && c.ops.length === 0 && !c.guardrail && (
+        <p className="fact-quiet">Nessuna mossa</p>
+      )}
+      {c.head?.status === "ok" && <Why note={c.head.note ?? ""} policy={policy} />}
+      {c.looseWhys.map((w, i) => <p key={i} className="why-line"><Quote text={w} policy={policy} /></p>)}
+      {c.raws.map((r, i) => <p key={`r-${i}`} className="raw-line">{r}</p>)}
+    </li>
+  );
+}
+
+function WaitGroup({ g, policy }: { g: Extract<Block, { type: "wait-group" }>; policy: PolicyLine[] }) {
+  const newest = g.cycles[0];
+  const range = g.cycles.length > 1 ? `${hm(g.from)}–${hm(g.to)}` : hm(g.to);
+  return (
+    <li className="cycle waitrow">
+      <header className="cycle-head">
+        <time className="cycle-time num">{range}</time>
+        <span className="fact-quiet">
+          Nessuna mossa{g.cycles.length > 1 && <span className="num"> ({g.cycles.length} cicli)</span>}
+        </span>
+      </header>
+      <Why note={newest.note} policy={policy} />
+      {g.cycles.length > 1 && (
+        <details className="op-details">
+          <summary>i singoli cicli</summary>
+          {/* la nota più recente è già nel PERCHÉ sopra: qui solo le precedenti */}
+          <ul>{g.cycles.slice(1).map((c, i) => (
+            <li key={i} className="raw-line"><span className="num">{hm(c.ts)}</span> — <Quote text={c.note} policy={policy} /></li>
+          ))}</ul>
+        </details>
       )}
     </li>
   );
 }
 
-export function EventsFeed({ events }: { events: AgentEvent[] }) {
+const plural = (n: number, uno: string, tanti: string) => `${n} ${n === 1 ? uno : tanti}`;
+
+export function EventsFeed({ events, policy }: { events: AgentEvent[]; policy: PolicyLine[] }) {
   const [onlyTrades, setOnlyTrades] = useState(false);
-  const cycles = useMemo(() => buildCycles(events), [events]);
-  const tradeCount = useMemo(() => cycles.reduce((n, c) => n + c.moves.length, 0), [cycles]);
+  const blocks = useMemo(() => buildBlocks(events), [events]);
+  const { cycleCount, tradeCount } = useMemo(() => ({
+    cycleCount: blocks.reduce((n, b) => n + (b.type === "wait-group" ? b.cycles.length : 1), 0),
+    tradeCount: blocks.reduce((n, b) => n + (b.type === "cycle" ? b.ops.length : 0), 0),
+  }), [blocks]);
 
   if (!events.length)
     return <p className="empty">Ancora nessuna attività. L'agente è in osservazione.</p>;
 
-  const visible = onlyTrades ? cycles.filter((c) => c.moves.length > 0) : cycles;
+  const visible = onlyTrades
+    ? blocks.filter((b) => b.type === "cycle" && b.ops.length > 0)
+    : blocks;
 
-  // separatori di giorno: i cicli sono già dal più recente
-  const days: { label: string; cycles: CycleView[] }[] = [];
-  for (const c of visible) {
-    const label = dayLabel(c.timestamp);
+  const days: { label: string; blocks: Block[] }[] = [];
+  for (const b of visible) {
+    const label = dayLabel(b.type === "wait-group" ? b.to : b.ts);
     const last = days[days.length - 1];
-    if (last && last.label === label) last.cycles.push(c);
-    else days.push({ label, cycles: [c] });
+    if (last && last.label === label) last.blocks.push(b);
+    else days.push({ label, blocks: [b] });
   }
 
   return (
     <div className="feed">
       <div className="feed-bar">
         <span className="feed-count num">
-          {plural(cycles.length, "ciclo", "cicli")} · {plural(tradeCount, "operazione", "operazioni")}
+          {plural(cycleCount, "ciclo", "cicli")} · {plural(tradeCount, "operazione", "operazioni")}
         </span>
         <div className="seg" role="group" aria-label="Filtra il diario">
-          <button type="button" aria-pressed={!onlyTrades} onClick={() => setOnlyTrades(false)}>
-            tutto
-          </button>
-          <button type="button" aria-pressed={onlyTrades} onClick={() => setOnlyTrades(true)}>
-            solo operazioni
-          </button>
+          <button type="button" aria-pressed={!onlyTrades} onClick={() => setOnlyTrades(false)}>tutto</button>
+          <button type="button" aria-pressed={onlyTrades} onClick={() => setOnlyTrades(true)}>solo operazioni</button>
         </div>
       </div>
-
       {visible.length === 0 ? (
         <p className="empty">Nessun ciclo con operazioni, finora: l'agente ha sempre scelto di non muoversi.</p>
       ) : (
@@ -210,7 +224,9 @@ export function EventsFeed({ events }: { events: AgentEvent[] }) {
             <section key={d.label} className="feed-day">
               <h3 className="day-label">{d.label}</h3>
               <ol className="cycles">
-                {d.cycles.map((c) => <CycleBlock key={c.key} c={c} />)}
+                {d.blocks.map((b) => b.type === "wait-group"
+                  ? <WaitGroup key={b.key} g={b} policy={policy} />
+                  : <CycleBlock key={b.key} c={b} policy={policy} />)}
               </ol>
             </section>
           ))}
