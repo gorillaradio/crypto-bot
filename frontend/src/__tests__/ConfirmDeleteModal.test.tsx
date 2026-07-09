@@ -6,7 +6,7 @@ vi.mock("../api", () => ({ deleteAgent: vi.fn() }));
 import { deleteAgent } from "../api";
 
 const agent = { id: 7, name: "Doomed", status: "running", instructions: "",
-  cash_usd: "100", equity: "100", return_pct: "0", duration_start: "", duration_end: "" };
+  cash_usd: "100", equity: "100", return_pct: "0", duration_start: "", duration_end: "", decision_seconds: 0 };
 
 beforeEach(() => vi.mocked(deleteAgent).mockReset());
 

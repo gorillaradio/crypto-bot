@@ -5,7 +5,8 @@ import type { Position } from "../api";
 
 const pos = (over: Partial<Position> = {}): Position => ({
   symbol: "BTCUSDT", quantity: "2", avg_price: "100", cost_basis: "200",
-  last_price: "150", unrealized_pnl_pct: "50", market_value: "300", ...over,
+  last_price: "150", unrealized_pnl_pct: "50", market_value: "300",
+  opened_at: null, realized_usd: "0", ...over,
 });
 
 describe("PositionsTable", () => {
