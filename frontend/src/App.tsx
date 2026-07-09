@@ -239,7 +239,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
               <Card>
                 <CardContent>
                   <PanelHead title="Posizioni" hint="cosa ha in portafoglio adesso" />
-                  <PositionsTable positions={positions} />
+                  <PositionsTable positions={positions} events={events} />
                 </CardContent>
               </Card>
               <Card>
