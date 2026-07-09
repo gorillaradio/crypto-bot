@@ -232,6 +232,12 @@ body {
   background: var(--secondary); color: var(--muted-foreground);
 }
 
+/* quiet inline chips (Memoria: voce "ritirata") */
+.chip {
+  font-size: 11px; padding: 1.5px 9px; border-radius: 999px;
+  background: var(--secondary); color: var(--muted-foreground);
+}
+
 /* ---- Attività: il diario "fatto → motivo", un blocco per ciclo ---- */
 .feed-bar {
   display: flex; align-items: center; justify-content: space-between;
