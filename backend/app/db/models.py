@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint, Boolean, Integer
+from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint, Boolean, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -42,6 +42,13 @@ class Position(Base):
     avg_price: Mapped[Decimal] = mapped_column(Numeric(20, 8))
     breach_armed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     move_armed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Vita della posizione: quando è nata, quanto ci è entrato (somma dei BUY),
+    # quanto è già stato incassato dalle vendite parziali (lordo fee).
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invested_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False,
+                                                  default=Decimal("0"), server_default="0")
+    realized_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False,
+                                                  default=Decimal("0"), server_default="0")
     agent: Mapped["Agent"] = relationship(back_populates="positions")
 
 
@@ -71,6 +78,8 @@ class Event(Base):
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
     kind: Mapped[str] = mapped_column(String(30))
     message: Mapped[str] = mapped_column(String)
+    # Dati strutturati dell'evento (forma per kind, vedi spec); message resta il log leggibile.
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
