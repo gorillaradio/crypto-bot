@@ -1,8 +1,10 @@
 import re
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from pydantic import model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (BaseSettings, PydanticBaseSettingsSource,
+                               SettingsConfigDict, TomlConfigSettingsSource)
 
 _WINDOW_RE = re.compile(r"([1-9]\d*)([mhd])")
 _WINDOW_UNITS = {"m": timedelta(minutes=1), "h": timedelta(hours=1), "d": timedelta(days=1)}
@@ -17,21 +19,72 @@ def _parse_window(s: str) -> timedelta:
     return int(m.group(1)) * _WINDOW_UNITS[m.group(2)]
 
 
+def _require_config_toml(path: Path) -> Path:
+    """Un config.toml mancante non solleverebbe niente da solo: pydantic-settings
+    ignora la sorgente. I campi obbligatori lo farebbero fallire comunque, ma con
+    venti 'field required' invece di una causa. Meglio dirla."""
+    if not path.is_file():
+        raise RuntimeError(
+            f"config.toml non trovato in {path}. È la fonte dei parametri di progetto "
+            "(capitale, fee, intervalli, finestre di scoring)."
+        )
+    return path
+
+
+_CONFIG_TOML = _require_config_toml(Path(__file__).resolve().parents[3] / "config.toml")
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore",
+                                      toml_file=_CONFIG_TOML)
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """init kwargs > env var > .env > config.toml."""
+        return (init_settings, env_settings, dotenv_settings,
+                TomlConfigSettingsSource(settings_cls), file_secret_settings)
+
+    # --- da config.toml: nessun default, un TOML incompleto deve fallire ---
+    initial_capital_usd: Decimal          # seed del cash di ogni nuovo agente
+    fee_rate: Decimal
+    min_trade_usd: Decimal
+    heartbeat_seconds: int
+    decision_seconds: int
+    scoring_seconds: int
+    news_poll_seconds: int
+    universe_default: str
+    scoring_window_short: str             # la durata è la fonte di verità, il label è la stringa
+    scoring_window_long: str
+    wake_budget_per_hour: int             # max news+movement wakes/hour per agent
+    movement_threshold: Decimal           # |~1h move| >= this fraction => movement wake
+    movement_window_hours: int
+    analyst_model: str                    # OpenRouter slug
+    brief_max_highlights: int
+    market_brief_max_age_minutes: int
+    analyst_news_limit: int
+    session_max_age_seconds: int
+    deepseek_base_url: str
+    glm_base_url: str
+    openrouter_base_url: str
+
+    # --- specifici della macchina: il default nel codice è il valore giusto ---
     database_url: str = "postgresql+psycopg://crypto:crypto@postgres:5432/crypto"
-    initial_capital_usd: Decimal = Decimal("100")
-    fee_rate: Decimal = Decimal("0.001")
-    heartbeat_seconds: int = 300
-    decision_seconds: int = 3600
-    scoring_seconds: int = 900       # re-score matured decisions every 15 min
-    news_poll_seconds: int = 900     # poll crypto news feeds every 15 min
-    universe_default: str = "TOP_100"
+    session_https_only: bool = True
 
-    # --- scoring windows: la durata è configurabile, il label è la stringa stessa ---
-    scoring_window_short: str = "24h"
-    scoring_window_long: str = "7d"
+    # --- segreti: main.py:15 rifiuta di partire senza secret_key ---
+    secret_key: str = ""
+    admin_password: str = ""
+    anthropic_api_key: str = ""
+    deepseek_api_key: str = ""
+    glm_api_key: str = ""
+    openrouter_api_key: str = ""
 
     @model_validator(mode="after")
     def _check_scoring_windows(self):
@@ -47,34 +100,6 @@ class Settings(BaseSettings):
         """Label → durata, in ordine short→long (l'ordine guida scoring, API e dashboard)."""
         return {self.scoring_window_short: _parse_window(self.scoring_window_short),
                 self.scoring_window_long: _parse_window(self.scoring_window_long)}
-
-    # --- trigger engine (Fase 5) ---
-    wake_budget_per_hour: int = 2          # max news+movement wakes/hour per agent
-    movement_threshold: Decimal = Decimal("0.05")   # |~1h move| >= this fraction => movement wake
-    movement_window_hours: int = 1
-
-    # --- auth ---
-    admin_password: str = ""
-    secret_key: str = ""
-    session_https_only: bool = True
-    session_max_age_seconds: int = 1209600  # 14 days
-
-    # --- brain v1 ---
-    min_trade_usd: Decimal = Decimal("5")
-
-    # --- brain v2 (Fase 6) ---
-    analyst_model: str = "deepseek/deepseek-v4-pro"   # OpenRouter slug — verify at wiring/deploy
-    brief_max_highlights: int = 15
-    market_brief_max_age_minutes: int = 120
-    analyst_news_limit: int = 30
-
-    anthropic_api_key: str = ""
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    glm_api_key: str = ""
-    glm_base_url: str = "https://api.z.ai/api/paas/v4"
-    openrouter_api_key: str = ""
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     @property
     def decision_buy_default_usd(self) -> Decimal:

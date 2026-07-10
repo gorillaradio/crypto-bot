@@ -1,0 +1,41 @@
+# Parametri di progetto. Versionato, passa dalla code review.
+# Precedenza: env var > .env > questo file. Nessun default nel codice:
+# se togli una chiave qui, l'app non parte.
+# Segreti e valori specifici della macchina NON vanno qui: vedi .env.example
+
+# --- capitale e costi ---
+initial_capital_usd = 100        # seed del cash di ogni nuovo agente
+fee_rate = 0.001
+min_trade_usd = 5
+
+# --- cadenza dello scheduler (secondi) ---
+heartbeat_seconds = 300
+decision_seconds = 3600
+scoring_seconds = 900
+news_poll_seconds = 900
+
+# --- universo ---
+universe_default = "TOP_100"
+
+# --- finestre di scoring (label = durata, <numero><m|h|d>, short < long) ---
+scoring_window_short = "24h"
+scoring_window_long = "7d"
+
+# --- trigger engine ---
+wake_budget_per_hour = 2
+movement_threshold = 0.05
+movement_window_hours = 1
+
+# --- brain v2 ---
+analyst_model = "deepseek/deepseek-v4-pro"
+brief_max_highlights = 15
+market_brief_max_age_minutes = 120
+analyst_news_limit = 30
+
+# --- endpoint dei provider (le API key stanno in .env) ---
+deepseek_base_url = "https://api.deepseek.com"
+glm_base_url = "https://api.z.ai/api/paas/v4"
+openrouter_base_url = "https://openrouter.ai/api/v1"
+
+# --- sessione ---
+session_max_age_seconds = 1209600  # 14 giorni
