@@ -3,6 +3,7 @@ from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, MemoryEntry,
                            DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
+from app.agents import runtime
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, universe_size
 from app.brain.context import CoinSnapshot
 from app.brain.memory import ReflectionResult, PolicyEdit
@@ -638,6 +639,17 @@ async def test_heartbeat_breach_still_triggers_when_benchmark_fails(db_session):
     assert pos.breach_armed is False                     # disarmed after trigger
     assert db_session.query(EquitySnapshot).filter_by(agent_id=agent.id).count() == 1
     assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count() == 0
+
+
+async def test_benchmark_basis_freezes_agent_capital_not_config(db_session, monkeypatch):
+    """BenchmarkBasis.initial_capital must copy the agent's frozen capital, not
+    settings.initial_capital_usd — a later config change must not leak in."""
+    agent = _agent(db_session, "100")
+    monkeypatch.setattr(runtime.settings, "initial_capital_usd", Decimal("500"))
+    await runtime.record_benchmark_snapshot(db_session, agent, FakeMarketHB(price=Decimal("100")),
+                                            datetime.now(timezone.utc))
+    basis = db_session.query(BenchmarkBasis).filter_by(agent_id=agent.id).one()
+    assert basis.initial_capital == Decimal("100")
 
 
 async def test_heartbeat_second_beat_benchmark_failure_keeps_basis(db_session):

@@ -364,7 +364,7 @@ async def record_benchmark_snapshot(session, agent, market, ts) -> None:
                 agent_id=agent.id,
                 universe_json=json.dumps(symbols),
                 start_prices_json=json.dumps({s: str(p) for s, p in start_prices.items()}),
-                initial_capital=settings.initial_capital_usd)
+                initial_capital=agent.initial_capital_usd)
             session.add(basis)
             now_prices = start_prices
             universe = symbols
