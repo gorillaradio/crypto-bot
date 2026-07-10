@@ -7,6 +7,7 @@ RUN npm run build
 
 FROM python:3.12-slim
 WORKDIR /srv
+COPY config.toml ./config.toml
 COPY backend/pyproject.toml ./backend/
 RUN pip install --no-cache-dir ./backend
 COPY backend ./backend
