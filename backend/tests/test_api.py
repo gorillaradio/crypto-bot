@@ -771,3 +771,28 @@ def test_agent_out_carries_decision_seconds(db_session):
     rows = client.get("/api/agents").json()
     assert len(rows) == 1
     assert rows[0]["decision_seconds"] == settings.decision_seconds
+
+
+def test_return_pct_uses_agent_capital_not_config(db_session, monkeypatch):
+    """Il cuore della fix: cambiare la config non deve riscrivere la storia."""
+    agent = Agent(name="R", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("50"), initial_capital_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    client = _client(db_session)
+
+    before = Decimal(str(client.get(f"/api/agents/{agent.id}").json()["return_pct"]))
+    assert before == Decimal("-50")                      # 50 su 100
+
+    monkeypatch.setattr(routes.settings, "initial_capital_usd", Decimal("500"))
+    after = Decimal(str(client.get(f"/api/agents/{agent.id}").json()["return_pct"]))
+    assert after == before                               # invariato: -50, non -90
+
+
+def test_create_agent_stamps_initial_capital_from_config(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="Seeded")
+    assert resp.status_code == 201
+    agent = db_session.query(Agent).filter_by(name="Seeded").one()
+    assert agent.initial_capital_usd == Decimal("100")
+    assert agent.cash_usd == agent.initial_capital_usd
