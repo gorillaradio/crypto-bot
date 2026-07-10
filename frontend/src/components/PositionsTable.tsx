@@ -1,4 +1,5 @@
-import type { Position } from "../api";
+import { Fragment, useState } from "react";
+import type { AgentEvent, Position, TradePayload } from "../api";
 import {
   Table,
   TableBody,
@@ -7,8 +8,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Sparkline } from "./Sparkline";
-import { usd, price, qty, pct } from "@/lib/format";
+import { dayShort, hm, price, pct, qty, usd } from "@/lib/format";
 
 // Shared cell classes: original .ptable th/td — right-aligned, nowrap, tabular-nums mono
 const thBase = "text-right text-xs font-medium text-muted-foreground whitespace-nowrap py-0 pb-2 px-0";
@@ -17,9 +19,36 @@ const tdBase = "text-right whitespace-nowrap py-2 px-0 border-t border-border bo
 const thSpark = "text-left pl-4 pr-4";
 const tdSpark = "text-left pl-4 pr-4";
 
-export function PositionsTable({ positions }: { positions: Position[] }) {
+// Racconto sintetico della vita della posizione dai trade events del symbol: SELL
+// parziale ("−N% alle HH:MM") e BUY di rincalzo ("aumentata alle HH:MM"), in ordine
+// cronologico. Nessuna posizione ha un cycle_id di apertura da agganciare qui.
+function storia(events: AgentEvent[], symbol: string, openedAt: string | null): string {
+  if (!openedAt) return "—";
+  const items: string[] = [];
+  for (const e of [...events].reverse()) {           // eventi desc → cronologico
+    if (e.kind !== "trade" || !e.payload || !("side" in e.payload)) continue;
+    const p = e.payload as TradePayload;
+    if (p.symbol !== symbol || e.timestamp < openedAt) continue;
+    if (p.side === "SELL" && p.fraction != null && Number(p.fraction) < 0.995)
+      items.push(`−${Math.round(Number(p.fraction) * 100)}% alle ${hm(e.timestamp)}`);
+    if (p.side === "BUY" && p.position === "increase")
+      items.push(`aumentata alle ${hm(e.timestamp)}`);
+  }
+  return items.length ? items.join(" · ") : "—";
+}
+
+export function PositionsTable({ positions, events }: { positions: Position[]; events: AgentEvent[] }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   if (!positions.length)
     return <p className="empty">Nessuna posizione aperta — tutto il capitale è in cash.</p>;
+
+  const toggle = (symbol: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(symbol)) next.delete(symbol);
+      else next.add(symbol);
+      return next;
+    });
 
   return (
     // Table primitive already wraps in overflow-x-auto; we add border-collapse via
@@ -30,36 +59,78 @@ export function PositionsTable({ positions }: { positions: Position[] }) {
           {/* First column: left-aligned (original .ptable th:first-child) */}
           <TableHead className={`${thBase} text-left`}>Coin</TableHead>
           <TableHead className={`${thBase} ${thSpark}`}>Andamento 24h</TableHead>
-          <TableHead className={thBase}>Quantità</TableHead>
-          <TableHead className={thBase}>Prezzo medio</TableHead>
-          <TableHead className={thBase}>Costo</TableHead>
+          <TableHead className={thBase}>Storia</TableHead>
           <TableHead className={thBase}>Valore</TableHead>
-          <TableHead className={thBase}>P&L</TableHead>
+          <TableHead className={thBase}>Non realizzato</TableHead>
+          <TableHead className={thBase}>Già incassato</TableHead>
+          <TableHead className={thBase} aria-hidden="true" />
         </TableRow>
       </TableHeader>
       <TableBody className="[&_tr:last-child]:border-0">
-        {positions.map((p) => (
-          <TableRow key={p.symbol} className="border-0 hover:bg-transparent">
-            {/* First column: left-aligned, bold coin name (original .coin) */}
-            <TableCell className={`${tdBase} text-left font-semibold`}>
-              {p.symbol.replace(/USDT$/, "")}
-            </TableCell>
-            <TableCell className={`${tdBase} ${tdSpark}`}>
-              <Sparkline symbol={p.symbol} />
-            </TableCell>
-            <TableCell className={tdBase}>{qty(p.quantity)}</TableCell>
-            <TableCell className={tdBase}>{price(p.avg_price)}</TableCell>
-            <TableCell className={tdBase}>{usd(p.cost_basis)}</TableCell>
-            <TableCell className={tdBase}>{p.market_value == null ? "—" : usd(p.market_value)}</TableCell>
-            <TableCell className={tdBase}>
-              {p.unrealized_pnl_pct == null ? "—" : (
-                <span className={Number(p.unrealized_pnl_pct) >= 0 ? "pos" : "neg"}>
-                  {pct(p.unrealized_pnl_pct)}
-                </span>
+        {positions.map((p) => {
+          const sym = p.symbol.replace(/USDT$/, "");
+          const isOpen = expanded.has(p.symbol);
+          const realized = Number(p.realized_usd);
+          return (
+            <Fragment key={p.symbol}>
+              <TableRow id={`pos-${sym}`} className="border-0 hover:bg-transparent">
+                {/* First column: left-aligned, bold coin name (original .coin) */}
+                <TableCell className={`${tdBase} text-left font-semibold`}>
+                  {sym}
+                  {p.opened_at && (
+                    <div className="text-xs font-normal text-muted-foreground">
+                      aperta {dayShort(p.opened_at)} {hm(p.opened_at)}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className={`${tdBase} ${tdSpark}`}>
+                  <Sparkline symbol={p.symbol} />
+                </TableCell>
+                <TableCell className={`${tdBase} text-xs`}>{storia(events, p.symbol, p.opened_at)}</TableCell>
+                <TableCell className={tdBase}>{p.market_value == null ? "—" : usd(p.market_value)}</TableCell>
+                <TableCell className={tdBase}>
+                  {p.unrealized_pnl_pct == null ? "—" : (
+                    <span className={Number(p.unrealized_pnl_pct) >= 0 ? "pos" : "neg"}>
+                      {pct(p.unrealized_pnl_pct)}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className={tdBase}>
+                  {realized === 0 ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <span className={realized >= 0 ? "pos" : "neg"}>
+                      {realized >= 0 ? "+" : "−"}{usd(Math.abs(realized))}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className={`${tdBase} pl-2`}>
+                  <button
+                    type="button"
+                    aria-label="dettagli"
+                    aria-expanded={isOpen}
+                    className="bg-transparent border-0 cursor-pointer p-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => toggle(p.symbol)}
+                  >
+                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+                </TableCell>
+              </TableRow>
+              {isOpen && (
+                <TableRow className="border-0 hover:bg-transparent">
+                  {/* La tabella racconta, il dettaglio rende conto: numeri da contabile qui soltanto. */}
+                  <TableCell
+                    colSpan={7}
+                    className="text-left text-xs text-muted-foreground whitespace-normal py-2 px-0 border-t border-border"
+                  >
+                    quantità {qty(p.quantity)} · costo medio {price(p.avg_price)} · prezzo attuale{" "}
+                    {p.last_price == null ? "—" : price(p.last_price)} · costo totale {usd(p.cost_basis)}
+                  </TableCell>
+                </TableRow>
               )}
-            </TableCell>
-          </TableRow>
-        ))}
+            </Fragment>
+          );
+        })}
       </TableBody>
     </Table>
   );

@@ -63,3 +63,66 @@ def test_sell_raises_if_not_enough_quantity(db_session):
     db_session.commit()
     with pytest.raises(ValueError):
         execute_sell(db_session, agent, "BTCUSDT", Decimal("0.5"), bid=Decimal("200"))
+
+
+# --- payload strutturato e ciclo di vita posizione (spec 2026-07-09) ---
+from app.db.models import Event
+
+
+def test_buy_writes_structured_payload_and_opens_lifecycle(db_session):
+    agent = _agent(db_session, "100")
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), ask=Decimal("100"),
+                cycle_id="c1", rationale="momentum")
+    ev = db_session.query(Event).filter_by(kind="trade").one()
+    p = ev.payload
+    assert p["side"] == "BUY" and p["symbol"] == "BTCUSDT"
+    assert p["usd_value"] == "50" and p["rationale"] == "momentum"
+    assert p["position"] == "new"
+    pos = db_session.query(Position).one()
+    assert pos.opened_at is not None
+    assert pos.invested_usd == Decimal("50")
+    assert pos.realized_usd == Decimal("0")
+
+
+def test_rebuy_marks_increase_and_accumulates_invested(db_session):
+    agent = _agent(db_session, "200")
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), ask=Decimal("100"))
+    first_opened = db_session.query(Position).one().opened_at
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("30"), ask=Decimal("120"))
+    pos = db_session.query(Position).one()
+    assert pos.invested_usd == Decimal("80")
+    assert pos.opened_at == first_opened          # il riacquisto non riapre la vita
+    last = db_session.query(Event).filter_by(kind="trade").order_by(Event.id.desc()).first()
+    assert last.payload["position"] == "increase"
+
+
+def test_partial_sell_payload_has_fraction_and_realized(db_session):
+    agent = _agent(db_session, "100")
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), ask=Decimal("100"))
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("0.25"), bid=Decimal("120"),
+                 rationale="take profit")
+    ev = db_session.query(Event).filter_by(kind="trade").order_by(Event.id.desc()).first()
+    p = ev.payload
+    assert p["side"] == "SELL"
+    assert Decimal(p["fraction"]) == Decimal("0.5")            # 0.25 di 0.5
+    assert Decimal(p["realized_pnl_pct"]) == Decimal("20")     # (120-100)/100
+    assert Decimal(p["realized_pnl_usd"]) == Decimal("5")      # 20 * 0.25
+    assert "position_summary" not in p                          # parziale: niente biografia
+    pos = db_session.query(Position).one()
+    assert pos.realized_usd == Decimal("5")
+
+
+def test_full_close_payload_carries_position_summary(db_session):
+    agent = _agent(db_session, "100")
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), ask=Decimal("100"))
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("0.25"), bid=Decimal("120"))
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("0.25"), bid=Decimal("140"))
+    ev = db_session.query(Event).filter_by(kind="trade").order_by(Event.id.desc()).first()
+    s = ev.payload["position_summary"]
+    assert s["opened_at"] is not None and s["closed_at"] is not None
+    assert s["held_minutes"] >= 0
+    assert Decimal(s["invested_usd"]) == Decimal("50")
+    # vita intera: +5 (prima parziale) +10 (chiusura) = 15 → 30% dell'investito
+    assert Decimal(s["realized_total_usd"]) == Decimal("15")
+    assert Decimal(s["realized_total_pct"]) == Decimal("30")
+    assert db_session.query(Position).first() is None

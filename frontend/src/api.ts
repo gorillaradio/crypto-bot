@@ -13,6 +13,7 @@ export type Agent = {
   return_pct: string;
   duration_start: string;
   duration_end: string;
+  decision_seconds: number;
 };
 export type EquityPoint = { timestamp: string; equity_usd: string };
 export type BenchmarkPoint = { kind: string; timestamp: string; equity_usd: string };
@@ -28,7 +29,32 @@ export type ModelMetrics = {
   model_name: string | null; n_scored_actions: number;
   hit_rates: WindowHitRate[];
 };
-export type AgentEvent = { timestamp: string; kind: string; message: string; cycle_id: string | null };
+export type PositionSummary = {
+  opened_at: string | null; closed_at: string; held_minutes: number | null;
+  invested_usd: string | null; realized_total_usd: string; realized_total_pct: string | null;
+};
+export type TradePayload = {
+  side: "BUY" | "SELL"; symbol: string; qty: string; price: string; fee: string;
+  usd_value?: string; rationale?: string | null;
+  position?: "new" | "increase";                       // solo BUY
+  fraction?: string; avg_cost?: string;                // solo SELL
+  realized_pnl_pct?: string; realized_pnl_usd?: string; // solo SELL (eventi nuovi)
+  position_summary?: PositionSummary;                  // solo SELL a chiusura totale
+};
+export type SkippedAction = { type: string; symbol?: string | null; reason: string };
+export type DecisionPayload = {
+  status: "ok" | "error"; note?: string; executed?: number;
+  skipped?: SkippedAction[]; skipped_count?: number; errors?: number;
+  trigger?: string | null; wake_reason?: string | null; detail?: string;
+};
+export type ReflectionPayload = { status: "ok" | "invalid" | "error"; distilled?: string; detail?: string };
+export type RawPayload = { raw: string; folded?: boolean };
+export type EventPayload = TradePayload | DecisionPayload | ReflectionPayload | RawPayload;
+
+export type AgentEvent = {
+  timestamp: string; kind: string; message: string;
+  payload?: EventPayload | null; cycle_id: string | null;
+};
 export type Position = {
   symbol: string;
   quantity: string;
@@ -37,6 +63,13 @@ export type Position = {
   last_price: string | null;
   unrealized_pnl_pct: string | null;
   market_value: string | null;
+  opened_at: string | null;
+  realized_usd: string;
+};
+export type ClosedPosition = {
+  symbol: string; opened_at: string | null; closed_at: string; held_minutes: number | null;
+  invested_usd: string | null; realized_total_usd: string; realized_total_pct: string | null;
+  close_cycle_id: string | null;
 };
 export type Trade = {
   id: number;
@@ -96,6 +129,7 @@ export const getModelMetrics = () => get<ModelMetrics[]>("/api/metrics/by-model"
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getTrades = (id: number) => get<Trade[]>(`/api/agents/${id}/trades`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
+export const getClosedPositions = (id: number) => get<ClosedPosition[]>(`/api/agents/${id}/positions/closed`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
 export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);
 export const getPrompt = (id: number) => get<PromptPreview>(`/api/agents/${id}/prompt`);

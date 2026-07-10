@@ -51,7 +51,7 @@ describe("AgentFormModal edit", () => {
     vi.mocked(updateAgent).mockResolvedValue({ id: 2, name: "Renamed" } as never);
     const agent = { id: 2, name: "Old", status: "running", instructions: "",
       cash_usd: "100", equity: "100", return_pct: "0",
-      duration_start: "", duration_end: "" };
+      duration_start: "", duration_end: "", decision_seconds: 0 };
     render(<AgentFormModal mode="edit" agent={agent} onClose={() => {}} onSaved={onSaved} />);
     expect(screen.queryByLabelText(/modello/i)).not.toBeInTheDocument();   // edit shows name only
     fireEvent.change(screen.getByLabelText(/nome/i), { target: { value: "Renamed" } });

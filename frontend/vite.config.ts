@@ -13,5 +13,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
+    // Tests assert locale-formatted times (hm/dayLabel): pin the runner to UTC
+    // so results don't depend on the dev machine's timezone (CI is already UTC).
+    env: { TZ: "UTC" },
   },
 })

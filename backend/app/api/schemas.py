@@ -28,6 +28,7 @@ class AgentOut(BaseModel):
     return_pct: Decimal
     duration_start: datetime
     duration_end: datetime
+    decision_seconds: int
 
 
 class PositionOut(BaseModel):
@@ -38,6 +39,19 @@ class PositionOut(BaseModel):
     last_price: Decimal | None = None
     unrealized_pnl_pct: Decimal | None = None
     market_value: Decimal | None = None
+    opened_at: datetime | None = None
+    realized_usd: Decimal = Decimal("0")
+
+
+class ClosedPositionOut(BaseModel):
+    symbol: str
+    opened_at: datetime | None = None
+    closed_at: datetime
+    held_minutes: int | None = None
+    invested_usd: Decimal | None = None
+    realized_total_usd: Decimal
+    realized_total_pct: Decimal | None = None
+    close_cycle_id: str | None = None
 
 
 class EquityPoint(BaseModel):
@@ -80,6 +94,7 @@ class EventOut(BaseModel):
     timestamp: datetime
     kind: str
     message: str
+    payload: dict | None = None
     cycle_id: str | None = None
 
 

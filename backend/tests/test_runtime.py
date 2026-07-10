@@ -409,7 +409,7 @@ async def test_invalid_policy_edit_leaves_reflection_memory_unchanged(db_session
 
 
 async def test_decision_events_share_one_cycle_id(db_session):
-    """Every event a single run_decision emits (decision summary, reasoning, trade)
+    """Every event a single run_decision emits (decision summary, trade)
     must carry the same non-null cycle_id so the frontend can group them."""
     agent = _llm_agent(db_session)
     snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
@@ -421,7 +421,7 @@ async def test_decision_events_share_one_cycle_id(db_session):
                        brain_decide=lambda ctx, adapter: DecisionResult(decision))
     events = db_session.query(Event).filter_by(agent_id=agent.id).all()
     kinds = {e.kind for e in events}
-    assert {"decision", "reasoning", "trade"} <= kinds   # all three present
+    assert {"decision", "trade"} <= kinds   # both present
     cycle_ids = {e.cycle_id for e in events}
     assert len(cycle_ids) == 1 and None not in cycle_ids  # exactly one, non-null
 
@@ -937,3 +937,50 @@ async def test_breach_wake_does_not_advance_news_watermark(db_session):
         return True
     await run_heartbeat(db_session, agent, market, trigger_decision=fake_trigger)
     assert agent.last_seen_observation_id is None         # a breach wake must NOT advance the news bookmark
+
+
+# --- payload strutturati su decision/reflection (spec 2026-07-09) ---
+
+async def test_decision_event_payload_records_skip_reasons(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[
+        Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"), rationale="ok buy"),
+        Action(type="BUY", symbol="DOGEUSDT", usd_amount=Decimal("50"), rationale="x"),   # fuori universo
+        Action(type="SELL", symbol="ETHUSDT", rationale="x"),                              # mai posseduta
+    ], note="testing skips")
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
+    p = ev.payload
+    assert p["status"] == "ok" and p["note"] == "testing skips"
+    assert p["executed"] == 1 and p["errors"] == 0
+    assert p["skipped_count"] == 2
+    reasons = {(s["type"], s["symbol"]): s["reason"] for s in p["skipped"]}
+    assert reasons[("BUY", "DOGEUSDT")] == "coin fuori universo"
+    assert reasons[("SELL", "ETHUSDT")] == "posizione inesistente"
+
+
+async def test_trade_rationale_lives_in_trade_payload_no_reasoning_events(db_session):
+    agent = _llm_agent(db_session)
+    snap = [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))]
+    market = FakeMarketLLM(snap, Decimal("100"), (Decimal("99"), Decimal("101")))
+    decision = Decision(actions=[
+        Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"), rationale="momentum play"),
+    ], note="buy")
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+    trade_ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="trade").one()
+    assert trade_ev.payload["rationale"] == "momentum play"
+    assert db_session.query(Event).filter_by(agent_id=agent.id, kind="reasoning").count() == 0
+
+
+async def test_decision_error_event_payload(db_session, monkeypatch):
+    agent = _llm_agent(db_session)
+    market = FakeMarketLLM([], Decimal("100"), (Decimal("99"), Decimal("101")))
+    def boom(ctx, adapter): raise RuntimeError("LLM timeout")
+    await run_decision(db_session, agent, market, ["BTCUSDT"], brain_decide=boom)
+    ev = db_session.query(Event).filter_by(agent_id=agent.id, kind="decision").one()
+    assert ev.payload["status"] == "error"
+    assert "LLM timeout" in ev.payload["detail"]

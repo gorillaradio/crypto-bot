@@ -703,3 +703,71 @@ def test_get_brief_502_when_market_fails(db_session):
     client = _client(db_session)
     app.dependency_overrides[routes.market_dep] = lambda: FailingMarketPreview()
     assert client.get(f"/api/agents/{agent.id}/brief").status_code == 502
+
+
+def test_events_expose_payload(db_session):
+    client = _client(db_session)
+    aid = _mk(client, name="Ev").json()["id"]
+    db_session.add(Event(agent_id=aid, kind="trade", message="sold",
+                         payload={"symbol": "BTCUSDT", "qty": "1.5"}, cycle_id="c1"))
+    db_session.commit()
+    resp = client.get(f"/api/agents/{aid}/events")
+    assert resp.status_code == 200
+    row = resp.json()[0]
+    assert row["payload"] == {"symbol": "BTCUSDT", "qty": "1.5"}
+    assert row["cycle_id"] == "c1"
+
+
+def test_positions_expose_lifecycle_fields(db_session):
+    agent = Agent(name="Lc", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    opened = datetime.now(timezone.utc) - timedelta(hours=3)
+    db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
+                            quantity=Decimal("1"), avg_price=Decimal("100"),
+                            opened_at=opened, realized_usd=Decimal("2.50")))
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market()
+    row = client.get(f"/api/agents/{agent.id}/positions").json()[0]
+    assert row["opened_at"] is not None
+    assert Decimal(row["realized_usd"]) == Decimal("2.50")
+
+
+def test_closed_positions_read_from_events(db_session):
+    client = _client(db_session)
+    aid = _mk(client, name="Closed").json()["id"]
+    summary = {
+        "opened_at": "2026-07-01T10:00:00+00:00",
+        "held_minutes": 120,
+        "invested_usd": "50.00",
+        "realized_total_usd": "2.80",
+        "realized_total_pct": "5.60",
+        "closed_at": "2026-07-01T12:00:00+00:00",
+    }
+    db_session.add(Event(agent_id=aid, kind="trade", message="full close",
+                         payload={"symbol": "SYNUSDT", "position_summary": summary},
+                         cycle_id="c-close"))
+    db_session.add(Event(agent_id=aid, kind="trade", message="partial sell",
+                         payload={"symbol": "SYNUSDT"}, cycle_id="c-partial"))
+    db_session.commit()
+    resp = client.get(f"/api/agents/{aid}/positions/closed")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["symbol"] == "SYNUSDT"
+    assert Decimal(row["realized_total_usd"]) == Decimal("2.80")
+    assert Decimal(row["realized_total_pct"]) == Decimal("5.60")
+    assert Decimal(row["invested_usd"]) == Decimal("50.00")
+    assert row["held_minutes"] == 120
+    assert row["close_cycle_id"] == "c-close"
+
+
+def test_agent_out_carries_decision_seconds(db_session):
+    from app.core.config import settings
+    client = _client(db_session)
+    _mk(client, name="Dec")
+    rows = client.get("/api/agents").json()
+    assert len(rows) == 1
+    assert rows[0]["decision_seconds"] == settings.decision_seconds

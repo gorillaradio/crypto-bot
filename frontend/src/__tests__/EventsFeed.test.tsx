@@ -1,121 +1,166 @@
-import { render, screen, within, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { EventsFeed } from "../components/EventsFeed";
-import type { AgentEvent } from "../api";
+import type { AgentEvent, EventPayload, PolicyLine } from "../api";
 
 const ev = (
-  kind: string, message: string, cycle_id: string | null,
-  timestamp = "2026-06-29T09:40:39Z",
-): AgentEvent => ({ timestamp, kind, message, cycle_id });
+  kind: string, payload: EventPayload | null, cycle_id: string | null,
+  timestamp = "2026-07-09T09:40:39Z", message = "raw message",
+): AgentEvent => ({ timestamp, kind, message, cycle_id, payload });
 
-describe("EventsFeed", () => {
-  it("renders a cycle as one diary block: note headline, trade with its why, memory chip", () => {
-    // API order is desc: reflection, decision, then reasoning/trade.
+const decision = (note: string, cycle: string, ts: string, extra: object = {}): AgentEvent =>
+  ev("decision", { status: "ok", note, executed: 0, skipped: [], skipped_count: 0,
+                   errors: 0, trigger: "schedule", wake_reason: null, ...extra }, cycle, ts);
+
+const POLICY: PolicyLine[] = [{ ref: "P3329", content: "Take profit oltre +12% sulle micro-cap" }];
+
+describe("EventsFeed (payload-driven)", () => {
+  it("raggruppa i cicli fermi consecutivi in un blocco unico con la nota più recente", () => {
     const events = [
-      ev("reflection", "memoria aggiornata dopo trade chiuso", "c1"),
-      ev("decision", "ciclo decisione (LLM): trim AEVO, add ACT — 1 operazioni, 0 saltate, 0 errori", "c1"),
-      ev("reasoning", "ACT momentum continues, adding", "c1"),
-      ev("trade", "BUY 378 ACTUSDT @ $0.0132 (fee $0.005)", "c1"),
+      decision("waiting for setups", "c3", "2026-07-09T10:34:00Z"),
+      decision("still cautious", "c2", "2026-07-09T10:29:00Z"),
+      decision("buys ACT", "c1", "2026-07-09T10:21:00Z", { executed: 1 }),
     ];
-    const { container } = render(<EventsFeed events={events} />);
-
-    expect(container.querySelectorAll(".cycle")).toHaveLength(1);
-
-    // the agent's note is the headline; the raw prefix and the counts are lifted out
-    const head = container.querySelector(".cycle-head")!;
-    expect(head.textContent).toContain("trim AEVO, add ACT");
-    expect(head.textContent).not.toContain("ciclo decisione");
-    expect(head.textContent).not.toContain("errori");
-
-    // the trade line is structured and carries its own rationale
-    const move = container.querySelector(".move")! as HTMLElement;
-    expect(within(move).getByText("BUY")).toBeInTheDocument();
-    expect(move.textContent).toContain("ACT");
-    expect(move.textContent).toContain("378 @ $0.0132");
-    expect(move.textContent).toContain("ACT momentum continues");
-
-    expect(screen.getByText(/memoria aggiornata/)).toBeInTheDocument();
-  });
-
-  it("summarizes cycles and trades in the header bar", () => {
-    const events = [
-      ev("decision", "ciclo decisione (LLM): hold — 0 operazioni, 0 saltate, 0 errori", "c2"),
-      ev("decision", "ciclo decisione (LLM): compro ACT — 1 operazioni, 0 saltate, 0 errori", "c1"),
-      ev("trade", "BUY 1 ACTUSDT @ $1 (fee $0.001)", "c1"),
-    ];
-    render(<EventsFeed events={events} />);
+    // c1 ha un trade → non raggruppabile
+    events.push(ev("trade", { side: "BUY", symbol: "ACTUSDT", qty: "378", price: "0.0132",
+                              fee: "0.005", usd_value: "5", rationale: "momentum",
+                              position: "new" }, "c1", "2026-07-09T10:21:01Z"));
+    const { container } = render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.getByText(/nessuna mossa/i)).toBeInTheDocument();
     expect(screen.getByText(/2 cicli/)).toBeInTheDocument();
-    expect(screen.getByText(/1 operazione/)).toBeInTheDocument();
+    expect(screen.getByText(/waiting for setups/)).toBeInTheDocument();   // nota più recente
+    expect(container.textContent).toContain("10:29");                     // range orario
   });
 
-  it("filters hold-only cycles out with 'solo operazioni'", () => {
+  it("vendita: pill neutra, P&L colorato, quota solo se parziale", () => {
     const events = [
-      ev("decision", "ciclo decisione (LLM): hold — 0 operazioni, 0 saltate, 0 errori", "c2"),
-      ev("decision", "ciclo decisione (LLM): compro ACT — 1 operazioni, 0 saltate, 0 errori", "c1"),
-      ev("trade", "BUY 1 ACTUSDT @ $1 (fee $0.001)", "c1"),
+      decision("lock profits", "c1", "2026-07-09T10:21:00Z", { executed: 2 }),
+      ev("trade", { side: "SELL", symbol: "SPELLUSDT", qty: "144788", price: "0.00012",
+                    fee: "0.01", usd_value: "17", rationale: "target exceeded per P3329",
+                    fraction: "0.5", avg_cost: "0.000104",
+                    realized_pnl_pct: "15.2", realized_pnl_usd: "2.20" }, "c1"),
+      ev("trade", { side: "SELL", symbol: "SYNUSDT", qty: "48.79", price: "0.4626",
+                    fee: "0.02", usd_value: "22", rationale: "same", fraction: "1",
+                    avg_cost: "0.4054", realized_pnl_pct: "14.1",
+                    realized_pnl_usd: "2.80" }, "c1"),
     ];
-    const { container } = render(<EventsFeed events={events} />);
-    expect(container.querySelectorAll(".cycle")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: /solo operazioni/i }));
-    expect(container.querySelectorAll(".cycle")).toHaveLength(1);
-    expect(screen.queryByText("hold")).not.toBeInTheDocument();
+    render(<EventsFeed events={events} policy={POLICY} />);
+    expect(screen.getAllByText("VENDITA")).toHaveLength(2);
+    expect(screen.getByText(/venduto il 50%/)).toBeInTheDocument();
+    expect(screen.queryByText(/venduto il 100%/)).not.toBeInTheDocument();
+    const pnl = screen.getByText(/\+15[.,]20%/);   // pct() formatta a 2 decimali
+    expect(pnl.closest(".pos")).not.toBeNull();
+    // la pill non deve avere classi di colore esito
+    const pill = screen.getAllByText("VENDITA")[0];
+    expect(pill.className).not.toMatch(/pos|neg/);
   });
 
-  it("badges out-of-schedule wakes", () => {
+  it("acquisto: valore grigio e natura della posizione, nessun P&L", () => {
+    const events = [
+      decision("entering", "c1", "2026-07-09T10:10:00Z", { executed: 1 }),
+      ev("trade", { side: "BUY", symbol: "SPELLUSDT", qty: "289575", price: "0.000103",
+                    fee: "0.03", usd_value: "29", rationale: "momentum",
+                    position: "new" }, "c1"),
+    ];
+    render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.getByText("ACQUISTO")).toBeInTheDocument();
+    expect(screen.getByText(/nuova posizione/)).toBeInTheDocument();
+    expect(screen.getByText(/~\$29/)).toBeInTheDocument();
+  });
+
+  it("il PERCHÉ cita la nota e risolve i riferimenti policy in tooltip", () => {
+    const events = [
+      decision("exit per P3329 discipline", "c1", "2026-07-09T10:21:00Z", { executed: 1 }),
+      ev("trade", { side: "SELL", symbol: "AUSDT", qty: "1", price: "2", fee: "0",
+                    usd_value: "2", rationale: null, fraction: "1", avg_cost: "1",
+                    realized_pnl_pct: "100", realized_pnl_usd: "1" }, "c1"),
+    ];
+    render(<EventsFeed events={events} policy={POLICY} />);
+    const ref = screen.getByText("P3329");
+    expect(ref).toHaveAttribute("title", "Take profit oltre +12% sulle micro-cap");
+  });
+
+  it("niente eventi reflection nel diario; reasoning folded saltati", () => {
+    const events = [
+      ev("reflection", { status: "error", detail: "boom" }, "c1"),
+      decision("note", "c1", "2026-07-09T10:00:00Z"),
+      ev("reasoning", { raw: "folded thought", folded: true }, "c1"),
+    ];
+    render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.queryByText(/riflessione/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/boom/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/folded thought/)).not.toBeInTheDocument();
+  });
+
+  it("ciclo in errore: fatto rosso con dettaglio", () => {
     render(<EventsFeed events={[
-      ev("decision", "ciclo decisione fuori ciclo (LLM): vendo tutto — 1 operazioni, 0 saltate, 0 errori", "c1"),
-    ]} />);
-    expect(screen.getByText("risveglio")).toBeInTheDocument();
-    expect(screen.getByText("vendo tutto")).toBeInTheDocument();
-  });
-
-  it("renders a failed cycle as an error", () => {
-    render(<EventsFeed events={[ev("decision", "ciclo decisione (LLM): errore — timeout LLM", "c1")]} />);
-    expect(screen.getByText("errore")).toBeInTheDocument();
+      ev("decision", { status: "error", detail: "timeout LLM", wake_reason: null }, "c1"),
+    ]} policy={[]} />);
+    expect(screen.getByText(/ciclo fallito/i)).toBeInTheDocument();
     expect(screen.getByText(/timeout LLM/)).toBeInTheDocument();
   });
 
-  it("surfaces skipped and failed actions as chips only when > 0", () => {
+  it("payload raw o assente: riga grezza smorzata", () => {
     render(<EventsFeed events={[
-      ev("decision", "ciclo decisione (LLM): provo tre cose — 1 operazioni, 2 saltate, 1 errori", "c1"),
-      ev("decision", "ciclo decisione (LLM): hold — 0 operazioni, 0 saltate, 0 errori", "c0"),
-    ]} />);
-    expect(screen.getByText("2 azioni saltate")).toBeInTheDocument();
-    expect(screen.getByText("1 errore di esecuzione")).toBeInTheDocument();
-    expect(screen.queryByText(/0 azioni saltate/)).not.toBeInTheDocument();
+      ev("trade", { raw: "SELL strano non parsato" }, null),
+      ev("decision", null, "c9", "2026-07-09T08:00:00Z", "messaggio antico"),
+    ]} policy={[]} />);
+    expect(screen.getByText(/SELL strano non parsato/)).toBeInTheDocument();
+    expect(screen.getByText(/messaggio antico/)).toBeInTheDocument();
   });
 
-  it("shows a quiet italic note when the agent left none", () => {
-    render(<EventsFeed events={[
-      ev("decision", "ciclo decisione (LLM): (no note) — 0 operazioni, 0 saltate, 0 errori", "c1"),
-    ]} />);
-    expect(screen.getByText(/nessuna nota/)).toBeInTheDocument();
-  });
-
-  it("renders a null-cycle trade (heartbeat guardrail) as its own badged group", () => {
-    const { container } = render(
-      <EventsFeed events={[ev("trade", "SELL 1 BTCUSDT @ $80 (fee $0.08)", null)]} />,
-    );
-    expect(screen.getByText("guardrail")).toBeInTheDocument();
-    const move = container.querySelector(".move")! as HTMLElement;
-    expect(within(move).getByText("SELL")).toBeInTheDocument();
-    expect(move.textContent).toContain("BTC");
-  });
-
-  it("groups cycles under day separators", () => {
+  it("filtro 'solo operazioni' nasconde i gruppi d'attesa", () => {
     const events = [
-      ev("decision", "ciclo decisione (LLM): hold — 0 operazioni, 0 saltate, 0 errori", "c2", "2026-06-30T10:00:00Z"),
-      ev("decision", "ciclo decisione (LLM): hold ancora — 0 operazioni, 0 saltate, 0 errori", "c1", "2026-06-29T10:00:00Z"),
+      decision("wait", "c2", "2026-07-09T10:30:00Z"),
+      decision("buys", "c1", "2026-07-09T10:00:00Z", { executed: 1 }),
+      ev("trade", { side: "BUY", symbol: "AUSDT", qty: "1", price: "1", fee: "0",
+                    usd_value: "1", rationale: null, position: "new" }, "c1"),
     ];
-    const { container } = render(<EventsFeed events={events} />);
-    const labels = [...container.querySelectorAll(".day-label")].map((e) => e.textContent);
-    expect(labels).toHaveLength(2);
-    expect(labels[0]).toMatch(/30 giugno/);
-    expect(labels[1]).toMatch(/29 giugno/);
+    render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.getByText(/nessuna mossa/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /solo operazioni/i }));
+    expect(screen.queryByText(/nessuna mossa/i)).not.toBeInTheDocument();
+    expect(screen.getByText("ACQUISTO")).toBeInTheDocument();
   });
 
-  it("shows an empty hint with no events", () => {
-    render(<EventsFeed events={[]} />);
+  it("chiusura totale (position_summary): link al simbolo punta a pos-closed", () => {
+    const events = [
+      decision("exit", "c1", "2026-07-09T10:21:00Z", { executed: 1 }),
+      ev("trade", { side: "SELL", symbol: "SYNUSDT", qty: "48.79", price: "0.4626",
+                    fee: "0.02", usd_value: "22", rationale: "same", fraction: "1",
+                    avg_cost: "0.4054", realized_pnl_pct: "14.1", realized_pnl_usd: "2.80",
+                    position_summary: { opened_at: "2026-07-09T10:10:00Z",
+                      closed_at: "2026-07-09T10:21:00Z", held_minutes: 11,
+                      invested_usd: "20", realized_total_usd: "2.80",
+                      realized_total_pct: "14.1" } }, "c1"),
+    ];
+    render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.getByText("SYN")).toHaveAttribute("href", "#pos-closed-SYN");
+  });
+
+  it("vendita parziale: link al simbolo resta su pos-SYM (posizione ancora aperta)", () => {
+    const events = [
+      decision("trim", "c1", "2026-07-09T10:21:00Z", { executed: 1 }),
+      ev("trade", { side: "SELL", symbol: "SPELLUSDT", qty: "144788", price: "0.00012",
+                    fee: "0.01", usd_value: "17", rationale: "trim", fraction: "0.5",
+                    avg_cost: "0.000104", realized_pnl_pct: "15.2", realized_pnl_usd: "2.20" }, "c1"),
+    ];
+    render(<EventsFeed events={events} policy={[]} />);
+    expect(screen.getByText("SPELL")).toHaveAttribute("href", "#pos-SPELL");
+  });
+
+  it("risveglio e guardrail marcati, empty state invariato", () => {
+    const { rerender } = render(<EventsFeed events={[
+      decision("woke", "c1", "2026-07-09T10:00:00Z", { wake_reason: "breach BTC" }),
+    ]} policy={[]} />);
+    expect(screen.getByText("risveglio")).toBeInTheDocument();
+    rerender(<EventsFeed events={[
+      ev("trade", { side: "SELL", symbol: "BUSDT", qty: "1", price: "1", fee: "0",
+                    usd_value: "1", rationale: null, fraction: "1", avg_cost: "2",
+                    realized_pnl_pct: "-50", realized_pnl_usd: "-1" }, null),
+    ]} policy={[]} />);
+    expect(screen.getByText(/guardrail/i)).toBeInTheDocument();
+    rerender(<EventsFeed events={[]} policy={[]} />);
     expect(screen.getByText(/nessuna attività/i)).toBeInTheDocument();
   });
 });
