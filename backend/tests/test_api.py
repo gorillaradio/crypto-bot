@@ -794,5 +794,5 @@ def test_create_agent_stamps_initial_capital_from_config(db_session):
     resp = _mk(client, name="Seeded")
     assert resp.status_code == 201
     agent = db_session.query(Agent).filter_by(name="Seeded").one()
-    assert agent.initial_capital_usd == Decimal("100")
+    assert agent.initial_capital_usd == routes.settings.initial_capital_usd
     assert agent.cash_usd == agent.initial_capital_usd
