@@ -59,7 +59,6 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
           {/* First column: left-aligned (original .ptable th:first-child) */}
           <TableHead className={`${thBase} text-left`}>Coin</TableHead>
           <TableHead className={`${thBase} ${thSpark}`}>Andamento 24h</TableHead>
-          <TableHead className={thBase}>Storia</TableHead>
           <TableHead className={thBase}>Valore</TableHead>
           <TableHead className={thBase}>Non realizzato</TableHead>
           <TableHead className={thBase}>Già incassato</TableHead>
@@ -71,9 +70,14 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
           const sym = p.symbol.replace(/USDT$/, "");
           const isOpen = expanded.has(p.symbol);
           const realized = Number(p.realized_usd);
+          const story = storia(events, p.symbol, p.opened_at);
           return (
             <Fragment key={p.symbol}>
-              <TableRow id={`pos-${sym}`} className="border-0 hover:bg-transparent">
+              <TableRow
+                id={`pos-${sym}`}
+                className="border-0 hover:bg-transparent cursor-pointer"
+                onClick={() => toggle(p.symbol)}
+              >
                 {/* First column: left-aligned, bold coin name (original .coin) */}
                 <TableCell className={`${tdBase} text-left font-semibold`}>
                   {sym}
@@ -86,7 +90,6 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
                 <TableCell className={`${tdBase} ${tdSpark}`}>
                   <Sparkline symbol={p.symbol} />
                 </TableCell>
-                <TableCell className={`${tdBase} text-xs`}>{storia(events, p.symbol, p.opened_at)}</TableCell>
                 <TableCell className={tdBase}>{p.market_value == null ? "—" : usd(p.market_value)}</TableCell>
                 <TableCell className={tdBase}>
                   {p.unrealized_pnl_pct == null ? "—" : (
@@ -110,7 +113,10 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
                     aria-label="dettagli"
                     aria-expanded={isOpen}
                     className="bg-transparent border-0 cursor-pointer p-0 text-muted-foreground hover:text-foreground"
-                    onClick={() => toggle(p.symbol)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggle(p.symbol);
+                    }}
                   >
                     {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
@@ -118,11 +124,12 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
               </TableRow>
               {isOpen && (
                 <TableRow className="border-0 hover:bg-transparent">
-                  {/* La tabella racconta, il dettaglio rende conto: numeri da contabile qui soltanto. */}
+                  {/* La tabella racconta, il dettaglio rende conto: storia e numeri da contabile qui soltanto. */}
                   <TableCell
-                    colSpan={7}
+                    colSpan={6}
                     className="text-left text-xs text-muted-foreground whitespace-normal py-2 px-0 border-t border-border"
                   >
+                    {story !== "—" && <div>storia: {story}</div>}
                     quantità {qty(p.quantity)} · costo medio {price(p.avg_price)} · prezzo attuale{" "}
                     {p.last_price == null ? "—" : price(p.last_price)} · costo totale {usd(p.cost_basis)}
                   </TableCell>

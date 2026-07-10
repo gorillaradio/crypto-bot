@@ -38,11 +38,22 @@ describe("PositionsTable", () => {
                  fee: "0", usd_value: "15", position: "increase" },
     }] as AgentEvent[];
     render(<PositionsTable positions={positions as Position[]} events={events} />);
-    expect(screen.getByText(/−50% alle/)).toBeInTheDocument();
-    expect(screen.getByText(/aumentata alle/)).toBeInTheDocument();
     expect(screen.getByText(/\$2\.20/)).toBeInTheDocument();
     expect(screen.queryByText("Quantità")).not.toBeInTheDocument();   // colonna retrocessa
+    // La storia non sta più in riga: compare solo nel dettaglio espanso.
+    expect(screen.queryByText(/−50% alle/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /dettagli/i }));
+    expect(screen.getByText(/−50% alle/)).toBeInTheDocument();
+    expect(screen.getByText(/aumentata alle/)).toBeInTheDocument();
     expect(screen.getByText(/costo medio/i)).toBeInTheDocument();
+  });
+
+  it("apre il dettaglio cliccando la riga", () => {
+    render(<PositionsTable positions={[pos()]} events={[]} />);
+    expect(screen.queryByText(/costo medio/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("BTC"));
+    expect(screen.getByText(/costo medio/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("BTC"));
+    expect(screen.queryByText(/costo medio/i)).not.toBeInTheDocument();
   });
 });
