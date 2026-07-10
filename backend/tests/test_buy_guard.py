@@ -11,7 +11,7 @@ pytestmark = pytest.mark.asyncio
 
 
 def _agent(session):
-    a = Agent(name="T", cash_usd=Decimal("1000"),
+    a = Agent(name="T", cash_usd=Decimal("1000"), initial_capital_usd=Decimal("1000"),
               model_name="deepseek/deepseek-v4-flash",
               duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1))

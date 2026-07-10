@@ -7,7 +7,7 @@ from app.trading.engine import execute_buy, execute_sell
 
 def _agent(session, cash="100"):
     a = Agent(name="T", duration_start=datetime.now(timezone.utc),
-              duration_end=datetime.now(timezone.utc), cash_usd=Decimal(cash))
+              duration_end=datetime.now(timezone.utc), cash_usd=Decimal(cash), initial_capital_usd=Decimal(cash))
     session.add(a); session.commit()
     return a
 

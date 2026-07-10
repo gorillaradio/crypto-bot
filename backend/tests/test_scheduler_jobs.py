@@ -7,7 +7,7 @@ from app.db.models import Agent, DecisionRecord, DecisionScore
 def _running_agent(session):
     a = Agent(name="Run", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal("100"), status="running")
+              cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"), status="running")
     session.add(a); session.commit()
     return a
 

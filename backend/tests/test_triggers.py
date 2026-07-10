@@ -7,7 +7,7 @@ from app.db.models import Agent, Position
 def _agent(session):
     a = Agent(name="T", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal("100"))
+              cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     session.add(a); session.commit()
     return a
 

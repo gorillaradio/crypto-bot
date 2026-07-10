@@ -18,7 +18,7 @@ def _agent(session, instructions=""):
     a = Agent(name="P", instructions=instructions,
               duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
+              cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
     session.add(a); session.commit()
     return a
 

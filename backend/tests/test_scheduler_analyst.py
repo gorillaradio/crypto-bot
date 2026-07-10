@@ -9,7 +9,7 @@ pytestmark = pytest.mark.asyncio
 
 
 def _agent(session):
-    a = Agent(name="T", status="running", cash_usd=Decimal("100"),
+    a = Agent(name="T", status="running", cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"),
               model_name="m", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1))
     session.add(a); session.commit()

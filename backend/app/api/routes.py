@@ -58,6 +58,7 @@ def create_agent(payload: AgentCreate, session=Depends(session_dep), _: str = De
         duration_start=now,
         duration_end=now + timedelta(days=payload.duration_days),
         cash_usd=settings.initial_capital_usd,
+        initial_capital_usd=settings.initial_capital_usd,
         universe=payload.universe,
         model_name=payload.model_name,
         stop_loss=payload.stop_loss,
