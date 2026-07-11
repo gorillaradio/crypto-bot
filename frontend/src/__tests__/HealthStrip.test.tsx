@@ -1,7 +1,20 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi } from "vitest";
 import { HealthStrip } from "../components/HealthStrip";
 import type { AgentEvent } from "../api";
+
+// Orologio congelato a mezzogiorno LOCALE: gli eventi "di N minuti fa" devono
+// restare nello stesso giorno (isToday) anche se la suite gira a cavallo di
+// mezzanotte. Costruttore locale, non ISO/UTC: mezzogiorno nel timezone del
+// runner, qualunque esso sia.
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 6, 10, 12, 0, 0));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString();
 
