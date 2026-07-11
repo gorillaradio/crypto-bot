@@ -18,6 +18,9 @@ class Agent(Base):
     duration_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), default="running")
     cash_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8))
+    # Capitale con cui l'agente è partito. Immutabile: è il denominatore del rendimento.
+    # settings.initial_capital_usd ne è solo il seed alla creazione.
+    initial_capital_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8))
     universe: Mapped[str] = mapped_column(String(20), default="TOP_100")
     # Every agent runs through the OpenRouter gateway; the model is chosen via model_name
     # (a "vendor/model" slug, e.g. "deepseek/deepseek-v4-flash").

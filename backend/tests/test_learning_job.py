@@ -12,7 +12,7 @@ def _agent(session):
         name="L",
         duration_start=datetime.now(timezone.utc),
         duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-        cash_usd=Decimal("100"),
+        cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"),
         model_name="m",
     )
     session.add(agent)

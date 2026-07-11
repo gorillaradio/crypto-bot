@@ -33,7 +33,7 @@ def market_dep() -> BinanceClient:
 
 def _agent_out(session, agent: Agent) -> AgentOut:
     equity = _latest_equity(session, agent)
-    initial = settings.initial_capital_usd
+    initial = agent.initial_capital_usd
     ret = ((equity - initial) / initial * Decimal("100")) if initial else Decimal("0")
     return AgentOut(
         id=agent.id,
@@ -58,6 +58,7 @@ def create_agent(payload: AgentCreate, session=Depends(session_dep), _: str = De
         duration_start=now,
         duration_end=now + timedelta(days=payload.duration_days),
         cash_usd=settings.initial_capital_usd,
+        initial_capital_usd=settings.initial_capital_usd,
         universe=payload.universe,
         model_name=payload.model_name,
         stop_loss=payload.stop_loss,

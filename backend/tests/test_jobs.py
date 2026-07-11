@@ -8,7 +8,7 @@ from app.db.models import Agent
 def _agent(session, name, universe):
     now = datetime.now(timezone.utc)
     a = Agent(name=name, duration_start=now, duration_end=now + timedelta(days=7),
-              cash_usd=Decimal("100"), universe=universe, status="running")
+              cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"), universe=universe, status="running")
     session.add(a)
     session.commit()
     return a

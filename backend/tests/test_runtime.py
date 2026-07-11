@@ -3,6 +3,7 @@ from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, MemoryEntry,
                            DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
+from app.agents import runtime
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, universe_size
 from app.brain.context import CoinSnapshot
 from app.brain.memory import ReflectionResult, PolicyEdit
@@ -55,7 +56,7 @@ def _stub_brief_bootstrap(monkeypatch):
 def _agent(session, cash="100"):
     a = Agent(name="R", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal(cash))
+              cash_usd=Decimal(cash), initial_capital_usd=Decimal(cash))
     session.add(a); session.commit()
     return a
 
@@ -63,7 +64,7 @@ def _agent(session, cash="100"):
 def _llm_agent(session):
     a = Agent(name="B", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal("100"),
+              cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"),
               model_provider="openrouter", model_name="deepseek/deepseek-v4-flash")
     session.add(a); session.commit()
     return a
@@ -72,7 +73,7 @@ def _llm_agent(session):
 def _armed_agent(session, stop="0.10", take="0.20"):
     a = Agent(name="H", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal("0"), stop_loss=Decimal(stop), take_profit=Decimal(take))
+              cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"), stop_loss=Decimal(stop), take_profit=Decimal(take))
     session.add(a); session.commit()
     return a
 
@@ -153,7 +154,7 @@ async def test_heartbeat_rearms_when_back_in_band(db_session):
 
 async def test_heartbeat_no_thresholds_never_triggers(db_session):
     a = Agent(name="Blind", duration_start=datetime.now(timezone.utc),
-              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"))
     db_session.add(a); db_session.commit()
     db_session.add(Position(agent_id=a.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
@@ -640,6 +641,17 @@ async def test_heartbeat_breach_still_triggers_when_benchmark_fails(db_session):
     assert db_session.query(BenchmarkSnapshot).filter_by(agent_id=agent.id).count() == 0
 
 
+async def test_benchmark_basis_freezes_agent_capital_not_config(db_session, monkeypatch):
+    """BenchmarkBasis.initial_capital must copy the agent's frozen capital, not
+    settings.initial_capital_usd — a later config change must not leak in."""
+    agent = _agent(db_session, "100")
+    monkeypatch.setattr(runtime.settings, "initial_capital_usd", Decimal("500"))
+    await runtime.record_benchmark_snapshot(db_session, agent, FakeMarketHB(price=Decimal("100")),
+                                            datetime.now(timezone.utc))
+    basis = db_session.query(BenchmarkBasis).filter_by(agent_id=agent.id).one()
+    assert basis.initial_capital == Decimal("100")
+
+
 async def test_heartbeat_second_beat_benchmark_failure_keeps_basis(db_session):
     """A later beat whose benchmark valuation fails rolls back only that beat's work;
     the basis frozen on the first beat stays intact."""
@@ -770,7 +782,7 @@ class FakeMarketMove:
 def _move_agent(db_session):
     """Agent with thresholds disabled (no breach) holding BTCUSDT."""
     a = Agent(name="M", duration_start=datetime.now(timezone.utc),
-              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"))
     db_session.add(a); db_session.commit()
     db_session.add(Position(agent_id=a.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.commit()
@@ -859,7 +871,7 @@ def _news_agent_holding_btc(db_session):
     import json as _json
     from app.db.models import Observation
     a = Agent(name="N", duration_start=datetime.now(timezone.utc),
-              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+              duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"))
     db_session.add(a); db_session.commit()
     db_session.add(Position(agent_id=a.id, symbol="BTCUSDT", quantity=Decimal("1"), avg_price=Decimal("100")))
     db_session.add(Observation(source="CoinDesk", kind="news", title="Bitcoin ETF approved", url="u1",

@@ -41,7 +41,7 @@ def test_create_agent_starts_with_initial_capital(db_session):
 def test_get_agent_equity_returns_curve(db_session):
     agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"))
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     db_session.add(EquitySnapshot(agent_id=agent.id, equity_usd=Decimal("105")))
     db_session.commit()
@@ -69,7 +69,7 @@ def test_get_agent_returns_404_for_missing(db_session):
 def test_agent_detail_reports_equity_and_return(db_session):
     agent = Agent(name="R", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"))
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     db_session.add(EquitySnapshot(agent_id=agent.id, equity_usd=Decimal("110")))
     db_session.commit()
@@ -82,7 +82,7 @@ def test_agent_detail_reports_equity_and_return(db_session):
 def test_get_positions_returns_holdings_with_cost_basis(db_session):
     agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("0"))
+                  cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"))
     db_session.add(agent); db_session.commit()
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("0.5"), avg_price=Decimal("100")))
@@ -97,7 +97,7 @@ def test_get_positions_returns_holdings_with_cost_basis(db_session):
 
 def test_get_positions_includes_live_pnl(db_session):
     agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"))
     db_session.add(agent); db_session.commit()
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("2"), avg_price=Decimal("100")))
@@ -112,7 +112,7 @@ def test_get_positions_includes_live_pnl(db_session):
 
 def test_get_positions_pnl_none_when_symbol_missing(db_session):
     agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"))
     db_session.add(agent); db_session.commit()
     db_session.add(Position(agent_id=agent.id, symbol="GONEUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
@@ -128,7 +128,7 @@ def test_get_positions_pnl_none_when_symbol_missing(db_session):
 
 def test_get_positions_degrades_to_cost_only_when_market_fails(db_session):
     agent = Agent(name="P", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("0"), initial_capital_usd=Decimal("0"))
     db_session.add(agent); db_session.commit()
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
@@ -169,7 +169,7 @@ def test_create_agent_rejects_empty_model_name(db_session):
 def test_get_agent_memory_returns_sections(db_session):
     from app.brain import journal
     agent = Agent(name="Mem", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: bull"])
     db_session.commit()
@@ -184,7 +184,7 @@ def test_get_agent_memory_returns_sections(db_session):
 def test_get_agent_memory_includes_policy_and_caps(db_session):
     from app.brain import journal
     agent = Agent(name="Pol", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     rows = journal.append_entries(db_session, agent.id, "self_policy", ["mai più del 30% su una coin"])
     db_session.commit()
@@ -199,7 +199,7 @@ def test_get_agent_memory_includes_policy_and_caps(db_session):
 def test_get_trades_returns_rows_newest_first(db_session):
     agent = Agent(name="T", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"))
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     t0 = datetime.now(timezone.utc) - timedelta(hours=2)
     db_session.add(Trade(agent_id=agent.id, symbol="BTCUSDT", side="BUY",
@@ -223,7 +223,7 @@ def test_get_trades_returns_rows_newest_first(db_session):
 def test_get_trades_empty_for_agent_without_trades(db_session):
     agent = Agent(name="T0", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"))
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     client = _client(db_session)
     resp = client.get(f"/api/agents/{agent.id}/trades")
@@ -234,7 +234,7 @@ def test_get_trades_empty_for_agent_without_trades(db_session):
 def test_get_events_returns_last_100_desc(db_session):
     agent = Agent(name="C", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"))
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     for i in range(5):
         db_session.add(Event(agent_id=agent.id, kind="info", message=f"msg {i}"))
@@ -359,7 +359,7 @@ def test_get_prompt_returns_three_prompts(db_session):
     agent = Agent(name="P", instructions="compra basso",
                   duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
     db_session.add(agent); db_session.commit()
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
                             quantity=Decimal("1"), avg_price=Decimal("100")))
@@ -391,7 +391,7 @@ def test_get_prompt_502_when_market_fails(db_session):
     agent = Agent(name="P", instructions="compra basso",
                   duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"), model_name="deepseek/deepseek-v4-flash")
     db_session.add(agent); db_session.commit()
     client = _client(db_session)
     app.dependency_overrides[routes.market_dep] = lambda: FailingMarketPreview()
@@ -402,7 +402,7 @@ def test_get_prompt_502_when_market_fails(db_session):
 def test_get_decisions_returns_records_newest_first(db_session):
     from app.db.models import DecisionRecord
     agent = Agent(name="D", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     db_session.add_all([
         DecisionRecord(agent_id=agent.id, cycle_id="c1", kind="decision", trigger="schedule",
@@ -463,7 +463,7 @@ def test_delete_agent_removes_decision_scores(db_session):
 def test_get_benchmarks_returns_points_oldest_first(db_session):
     from app.db.models import BenchmarkSnapshot
     agent = Agent(name="Bm", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     db_session.add_all([
         BenchmarkSnapshot(agent_id=agent.id, kind="hodl_btc", equity_usd=Decimal("100")),
@@ -514,7 +514,7 @@ def _decision_with_score(db_session, agent_id, model_name, window, n_actions, n_
 def test_agent_metrics_reports_return_drawdown_and_hitrate(db_session):
     from app.db.models import EquitySnapshot, BenchmarkSnapshot
     agent = Agent(name="Mx", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     for v in ("100", "120", "90"):
         db_session.add(EquitySnapshot(agent_id=agent.id, equity_usd=Decimal(v)))
@@ -585,7 +585,7 @@ def test_model_metrics_ignores_stale_window_labels(db_session):
 def test_get_memory_journal_returns_entries_newest_first(db_session):
     from app.brain import journal
     agent = Agent(name="Jn", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     journal.append_entries(db_session, agent.id, "coin_theses", ["BTC: bull", "ETH: flat"], cycle_id="c1")
     db_session.commit()
@@ -604,7 +604,7 @@ def test_memory_journal_includes_self_policy_entries(db_session):
     from app.brain import journal
     agent = Agent(name="Policy API", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"))
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     journal.append_entries(db_session, agent.id, "self_policy", ["Wait for evidence."])
     db_session.commit()
@@ -652,7 +652,7 @@ def test_get_brief_returns_filtered_view(db_session):
     from app.db.models import MarketBrief
     agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-                  cash_usd=Decimal("100"))
+                  cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     brief = {"regime": "risk-off",
              "highlights": [
@@ -675,7 +675,7 @@ def test_get_brief_returns_filtered_view(db_session):
 
 def test_get_brief_null_when_no_brief(db_session):
     agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     client = _client(db_session)
     _use_fake_market()
@@ -693,7 +693,7 @@ def test_get_brief_502_when_market_fails(db_session):
     import json as _json
     from app.db.models import MarketBrief
     agent = Agent(name="B", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     db_session.add(MarketBrief(cycle_id="c1",
                                parsed_brief=_json.dumps({"regime": "x", "highlights": [], "key_news": []}),
@@ -720,7 +720,7 @@ def test_events_expose_payload(db_session):
 
 def test_positions_expose_lifecycle_fields(db_session):
     agent = Agent(name="Lc", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1), cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     opened = datetime.now(timezone.utc) - timedelta(hours=3)
     db_session.add(Position(agent_id=agent.id, symbol="BTCUSDT",
@@ -771,3 +771,28 @@ def test_agent_out_carries_decision_seconds(db_session):
     rows = client.get("/api/agents").json()
     assert len(rows) == 1
     assert rows[0]["decision_seconds"] == settings.decision_seconds
+
+
+def test_return_pct_uses_agent_capital_not_config(db_session, monkeypatch):
+    """Il cuore della fix: cambiare la config non deve riscrivere la storia."""
+    agent = Agent(name="R", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("50"), initial_capital_usd=Decimal("100"))
+    db_session.add(agent); db_session.commit()
+    client = _client(db_session)
+
+    before = Decimal(str(client.get(f"/api/agents/{agent.id}").json()["return_pct"]))
+    assert before == Decimal("-50")                      # 50 su 100
+
+    monkeypatch.setattr(routes.settings, "initial_capital_usd", Decimal("500"))
+    after = Decimal(str(client.get(f"/api/agents/{agent.id}").json()["return_pct"]))
+    assert after == before                               # invariato: -50, non -90
+
+
+def test_create_agent_stamps_initial_capital_from_config(db_session):
+    client = _client(db_session)
+    resp = _mk(client, name="Seeded")
+    assert resp.status_code == 201
+    agent = db_session.query(Agent).filter_by(name="Seeded").one()
+    assert agent.initial_capital_usd == routes.settings.initial_capital_usd
+    assert agent.cash_usd == agent.initial_capital_usd

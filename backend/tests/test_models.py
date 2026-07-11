@@ -1,11 +1,14 @@
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+import pytest
+from sqlalchemy.exc import IntegrityError
 from app.db.models import Agent, Position
 
 
 def test_agent_model_fields_persist(db_session):
     a = Agent(name="L", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"),
+              initial_capital_usd=Decimal("100"),
               model_name="deepseek/deepseek-v4-flash")
     db_session.add(a); db_session.commit()
     db_session.refresh(a)               # read back from DB, not identity map
@@ -20,6 +23,7 @@ def test_agent_persists_with_decimal_cash(db_session):
         duration_start=datetime.now(timezone.utc),
         duration_end=datetime.now(timezone.utc) + timedelta(days=7),
         cash_usd=Decimal("100"),
+        initial_capital_usd=Decimal("100"),
     )
     db_session.add(agent)
     db_session.commit()
@@ -31,6 +35,7 @@ def test_position_links_to_agent(db_session):
     agent = Agent(
         name="Beta", duration_start=datetime.now(timezone.utc),
         duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"),
+        initial_capital_usd=Decimal("100"),
     )
     db_session.add(agent)
     db_session.commit()
@@ -44,7 +49,7 @@ def test_position_links_to_agent(db_session):
 def _mk_agent(session, **over):
     kw = dict(name="T", duration_start=datetime.now(timezone.utc),
               duration_end=datetime.now(timezone.utc) + timedelta(days=1),
-              cash_usd=Decimal("100"))
+              cash_usd=Decimal("100"), initial_capital_usd=Decimal("100"))
     kw.update(over)
     a = Agent(**kw)
     session.add(a); session.commit()
@@ -184,7 +189,8 @@ def test_settings_exposes_market_brief_max_age_minutes():
 def test_memory_entry_persists_with_defaults(db_session):
     from app.db.models import MemoryEntry
     agent = Agent(name="J", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"),
+                  initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     row = MemoryEntry(agent_id=agent.id, section="coin_theses", content="BTC: bull")
     db_session.add(row); db_session.commit(); db_session.refresh(row)
@@ -196,7 +202,8 @@ def test_memory_entry_persists_with_defaults(db_session):
 def test_memory_entry_allows_many_rows_per_section(db_session):
     from app.db.models import MemoryEntry
     agent = Agent(name="J2", duration_start=datetime.now(timezone.utc),
-                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"))
+                  duration_end=datetime.now(timezone.utc), cash_usd=Decimal("100"),
+                  initial_capital_usd=Decimal("100"))
     db_session.add(agent); db_session.commit()
     db_session.add_all([
         MemoryEntry(agent_id=agent.id, section="coin_theses", content="BTC: bull", cycle_id="c1"),
@@ -228,3 +235,29 @@ def test_observation_dedup_hash_is_unique(db_session):
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_agent_requires_initial_capital(db_session):
+    """Nessun default: chi crea un Agent dichiara con quanto parte."""
+    agent = Agent(
+        name="NoCapital",
+        duration_start=datetime.now(timezone.utc),
+        duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+        cash_usd=Decimal("100"),
+    )
+    db_session.add(agent)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_agent_persists_initial_capital(db_session):
+    agent = Agent(
+        name="WithCapital",
+        duration_start=datetime.now(timezone.utc),
+        duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+        cash_usd=Decimal("100"),
+        initial_capital_usd=Decimal("100"),
+    )
+    db_session.add(agent); db_session.commit()
+    assert agent.initial_capital_usd == Decimal("100")
