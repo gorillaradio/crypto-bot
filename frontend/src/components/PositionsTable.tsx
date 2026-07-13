@@ -32,7 +32,7 @@ export function PositionsTable({ items, state }: { items: LifecycleSummary[]; st
       ? "Nessuna posizione aperta — tutto il capitale è in cash."
       : state === "closed"
         ? "Nessuna posizione chiusa nel periodo selezionato. Amplia il periodo o scegli tutto lo storico."
-        : "Non esiste ancora alcun lifecycle.";
+        : "Non esiste ancora alcun lifecycle. Comparirà qui dopo la prima apertura dell’agente.";
     return <p className="empty">{copy}</p>;
   }
 

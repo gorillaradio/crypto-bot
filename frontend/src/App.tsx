@@ -90,7 +90,11 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   });
   const [allHistory, setAllHistory] = useState(false);
   const [positionCursor, setPositionCursor] = useState<string | null>(null);
+  const [positionsLoadingMore, setPositionsLoadingMore] = useState(false);
   const lifecycleRequest = useRef(0);
+  const lifecycleFetch = useRef(0);
+  const lifecycleLoadMorePending = useRef(false);
+  const lifecyclePaginationExpanded = useRef(false);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
@@ -150,26 +154,38 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   useEffect(() => {
     if (selId == null) return;
     const request = ++lifecycleRequest.current;
+    lifecyclePaginationExpanded.current = false;
+    lifecycleLoadMorePending.current = false;
+    setPositionsLoadingMore(false);
     setPositions([]);
     setPositionCursor(null);
-    const load = () => getLifecycles(selId, lifecycleOptions())
+    const load = () => {
+      const fetch = ++lifecycleFetch.current;
+      return getLifecycles(selId, lifecycleOptions())
       .then((page) => {
-        if (lifecycleRequest.current !== request) return;
+        if (lifecycleRequest.current !== request || lifecycleFetch.current !== fetch) return;
         setPositions(page.items);
         setPositionCursor(page.next_cursor);
       })
       .catch(onErr);
+    };
     load();
-    const h = setInterval(load, 15000);
+    const h = setInterval(() => {
+      if (!lifecyclePaginationExpanded.current) load();
+    }, 15000);
     return () => clearInterval(h);
   }, [selId, positionState, closedSince, allHistory]);
 
   const loadMorePositions = () => {
-    if (selId == null || positionCursor == null) return;
+    if (selId == null || positionCursor == null || lifecycleLoadMorePending.current) return;
     const request = lifecycleRequest.current;
+    const fetch = ++lifecycleFetch.current;
+    lifecycleLoadMorePending.current = true;
+    lifecyclePaginationExpanded.current = true;
+    setPositionsLoadingMore(true);
     getLifecycles(selId, { ...lifecycleOptions(), cursor: positionCursor })
       .then((page) => {
-        if (lifecycleRequest.current !== request) return;
+        if (lifecycleRequest.current !== request || lifecycleFetch.current !== fetch) return;
         setPositions((current) => {
           const byId = new Map(current.map((item) => [item.lifecycle_id, item]));
           for (const item of page.items) byId.set(item.lifecycle_id, item);
@@ -177,7 +193,13 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
         });
         setPositionCursor(page.next_cursor);
       })
-      .catch(onErr);
+      .catch(onErr)
+      .finally(() => {
+        if (lifecycleRequest.current === request) {
+          lifecycleLoadMorePending.current = false;
+          setPositionsLoadingMore(false);
+        }
+      });
   };
 
   // Manual Escape handler removed — shadcn Sheet handles Esc + backdrop dismiss natively.
@@ -309,7 +331,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                     )}
                   </div>
                   <PositionsTable items={positions} state={positionState} />
-                  {positionCursor && <Button variant="outline" size="sm" className="mt-3" onClick={loadMorePositions}>Carica altro</Button>}
+                  {positionCursor && <Button variant="outline" size="sm" className="mt-3" disabled={positionsLoadingMore} onClick={loadMorePositions}>{positionsLoadingMore ? "Caricamento…" : "Carica altro"}</Button>}
                 </CardContent>
               </Card>
               <Card>

@@ -24,7 +24,7 @@ vi.mock("../api", () => ({
   exchangeViewerToken: vi.fn(),
   getKlines: vi.fn(() => Promise.resolve([])),
 }));
-import { getMe, getAgents, getLifecycles, exchangeViewerToken } from "../api";
+import { AuthError, getMe, getAgents, getLifecycles, exchangeViewerToken } from "../api";
 
 beforeEach(() => {
   vi.mocked(getAgents).mockResolvedValue([] as never);
@@ -130,5 +130,31 @@ describe("App lifecycle navigation", () => {
     expect(screen.getAllByText("BTC")).toHaveLength(1);
     expect(getLifecycles).toHaveBeenLastCalledWith(1, expect.objectContaining({ cursor: "next-1" }));
     expect(screen.queryByRole("button", { name: "Carica altro" })).not.toBeInTheDocument();
+  });
+
+  it("serializza Carica altro mentre la pagina è in volo", async () => {
+    let resolvePage!: (value: unknown) => void;
+    const pendingPage = new Promise((resolve) => { resolvePage = resolve; });
+    const first = { lifecycle_id: "life-1", symbol: "BTCUSDT", status: "open", opened_at: "2026-07-01T00:00:00Z", closed_at: null, last_changed_at: "2026-07-02T00:00:00Z", quantity: "1", exposure_usd: "100", portfolio_weight_pct: "50", held_minutes: null, invested_usd: "100", fees_usd: "1", net_result_usd: "5", net_result_pct: "5" };
+    vi.mocked(getLifecycles)
+      .mockResolvedValueOnce({ items: [first], next_cursor: "next-1" } as never)
+      .mockReturnValueOnce(pendingPage as never);
+
+    render(<App />);
+    await screen.findByText("BTC");
+    const button = screen.getByRole("button", { name: "Carica altro" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(getLifecycles).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Caricamento…" })).toBeDisabled();
+    resolvePage({ items: [], next_cursor: null });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Caricamento…" })).not.toBeInTheDocument());
+  });
+
+  it("torna al login se la collezione perde l'autorizzazione", async () => {
+    vi.mocked(getLifecycles).mockRejectedValueOnce(new AuthError());
+    render(<App />);
+    expect(await screen.findByLabelText(/password/i)).toBeInTheDocument();
   });
 });

@@ -53,7 +53,7 @@ describe("PositionsTable", () => {
   it.each([
     ["open", "Nessuna posizione aperta — tutto il capitale è in cash."],
     ["closed", "Nessuna posizione chiusa nel periodo selezionato. Amplia il periodo o scegli tutto lo storico."],
-    ["all", "Non esiste ancora alcun lifecycle."],
+    ["all", "Non esiste ancora alcun lifecycle. Comparirà qui dopo la prima apertura dell’agente."],
   ] as const)("usa l'empty state specifico per %s", (state, copy) => {
     render(<PositionsTable items={[]} state={state} />);
     expect(screen.getByText(copy)).toBeInTheDocument();
