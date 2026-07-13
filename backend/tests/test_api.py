@@ -1,5 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+import base64
+import json
 import pytest
 from sqlalchemy import update
 from fastapi.testclient import TestClient
@@ -313,6 +315,26 @@ def test_lifecycle_collection_cursor_is_bound_to_state_and_closed_since(db_sessi
     assert client.get(
         f"/api/agents/{agent.id}/lifecycles?closed_since=2020-01-01T00:00:00Z&cursor={cursor}"
     ).status_code == 422
+
+
+def test_lifecycle_collection_rejects_cross_agent_and_non_finite_cursors(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc")
+    execute_buy(db_session, agent, "ETHUSDT", Decimal("100"), Decimal("100"), cycle_id="eth")
+    other = _lifecycle_agent(db_session)
+    client = _client(db_session)
+    _use_fake_market([
+        CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("ETHUSDT", Decimal("100"), Decimal("1")),
+    ])
+    cursor = client.get(f"/api/agents/{agent.id}/lifecycles?limit=1").json()["next_cursor"]
+
+    assert client.get(f"/api/agents/{other.id}/lifecycles?cursor={cursor}").status_code == 422
+    padded = cursor + "=" * (-len(cursor) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(padded).decode())
+    payload["key"][1] = "NaN"
+    invalid = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    assert client.get(f"/api/agents/{agent.id}/lifecycles?cursor={invalid}").status_code == 422
 
 
 def test_lifecycle_collection_keeps_successive_lives_of_same_symbol_distinct(db_session):

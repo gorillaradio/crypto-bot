@@ -34,9 +34,10 @@ def market_dep() -> BinanceClient:
     return BinanceClient()
 
 
-def _encode_lifecycle_cursor(state: str, closed_since: datetime, key: tuple) -> str:
+def _encode_lifecycle_cursor(agent_id: int, state: str, closed_since: datetime, key: tuple) -> str:
     payload = json.dumps({
         "v": 1,
+        "agent_id": agent_id,
         "state": state,
         "closed_since": _utc(closed_since).isoformat(),
         "key": list(key),
@@ -52,6 +53,7 @@ def _decode_lifecycle_cursor(cursor: str | None) -> dict | None:
         payload = json.loads(base64.b64decode(padded, altchars=b"-_", validate=True).decode())
         if (
             payload.get("v") != 1
+            or type(payload.get("agent_id")) is not int
             or payload.get("state") not in ("open", "closed", "all")
             or not isinstance(payload.get("closed_since"), str)
             or not isinstance(payload.get("key"), list)
@@ -78,7 +80,10 @@ def _lifecycle_cursor_key(state: str, values: list) -> tuple:
         if state == "open":
             if type(values[0]) is not bool or not isinstance(values[2], str):
                 raise ValueError
-            return (values[0], Decimal(values[1]), values[2])
+            exposure = Decimal(values[1])
+            if not exposure.is_finite():
+                raise ValueError
+            return (values[0], exposure, values[2])
         if state == "closed":
             if not isinstance(values[1], str):
                 raise ValueError
@@ -330,7 +335,9 @@ async def get_lifecycles(
     if agent is None:
         raise HTTPException(404, "agent not found")
     cursor_payload = _decode_lifecycle_cursor(cursor)
-    if cursor_payload is not None and cursor_payload["state"] != state:
+    if cursor_payload is not None and (
+        cursor_payload["agent_id"] != agent_id or cursor_payload["state"] != state
+    ):
         raise HTTPException(422, "cursor does not match lifecycle filters")
     cursor_threshold = (
         _utc(datetime.fromisoformat(cursor_payload["closed_since"]))
@@ -418,7 +425,7 @@ async def get_lifecycles(
         items = [row for row in items if _lifecycle_sort_key(state, row) < cursor_key]
     page = items[:limit]
     next_cursor = (
-        _encode_lifecycle_cursor(state, threshold, _lifecycle_sort_key(state, page[-1]))
+        _encode_lifecycle_cursor(agent_id, state, threshold, _lifecycle_sort_key(state, page[-1]))
         if len(items) > limit else None
     )
     return LifecycleCollectionOut(items=page, next_cursor=next_cursor)
