@@ -3,7 +3,7 @@ import binascii
 import json
 import logging
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import settings
@@ -34,22 +34,59 @@ def market_dep() -> BinanceClient:
     return BinanceClient()
 
 
-def _encode_lifecycle_cursor(offset: int) -> str:
-    payload = json.dumps({"offset": offset}, separators=(",", ":")).encode()
+def _encode_lifecycle_cursor(state: str, closed_since: datetime, key: tuple) -> str:
+    payload = json.dumps({
+        "v": 1,
+        "state": state,
+        "closed_since": _utc(closed_since).isoformat(),
+        "key": list(key),
+    }, separators=(",", ":"), default=str).encode()
     return base64.urlsafe_b64encode(payload).decode().rstrip("=")
 
 
-def _decode_lifecycle_cursor(cursor: str | None) -> int:
+def _decode_lifecycle_cursor(cursor: str | None) -> dict | None:
     if cursor is None:
-        return 0
+        return None
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         payload = json.loads(base64.b64decode(padded, altchars=b"-_", validate=True).decode())
-        offset = payload["offset"]
-        if type(offset) is not int or offset < 0:
+        if (
+            payload.get("v") != 1
+            or payload.get("state") not in ("open", "closed", "all")
+            or not isinstance(payload.get("closed_since"), str)
+            or not isinstance(payload.get("key"), list)
+            or len(payload["key"]) != 3
+        ):
             raise ValueError
-        return offset
-    except (ValueError, KeyError, TypeError, json.JSONDecodeError, UnicodeDecodeError, binascii.Error) as exc:
+        datetime.fromisoformat(payload["closed_since"])
+        return payload
+    except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError, binascii.Error) as exc:
+        raise HTTPException(422, "invalid cursor") from exc
+
+
+def _lifecycle_sort_key(state: str, row: LifecycleSummary) -> tuple:
+    if state == "open":
+        return (row.exposure_usd is not None, row.exposure_usd or Decimal("0"), row.lifecycle_id)
+    if state == "closed":
+        return (_utc(row.closed_at), row.lifecycle_id, "")
+    timestamp = row.last_changed_at if row.status == "open" else row.closed_at
+    return (row.status == "open", _utc(timestamp), row.lifecycle_id)
+
+
+def _lifecycle_cursor_key(state: str, values: list) -> tuple:
+    try:
+        if state == "open":
+            if type(values[0]) is not bool or not isinstance(values[2], str):
+                raise ValueError
+            return (values[0], Decimal(values[1]), values[2])
+        if state == "closed":
+            if not isinstance(values[1], str):
+                raise ValueError
+            return (_utc(datetime.fromisoformat(values[0])), values[1], "")
+        if type(values[0]) is not bool or not isinstance(values[2], str):
+            raise ValueError
+        return (values[0], _utc(datetime.fromisoformat(values[1])), values[2])
+    except (ValueError, TypeError, InvalidOperation) as exc:
         raise HTTPException(422, "invalid cursor") from exc
 
 
@@ -292,8 +329,16 @@ async def get_lifecycles(
     agent = session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(404, "agent not found")
-    offset = _decode_lifecycle_cursor(cursor)
-    threshold = closed_since or (datetime.now(timezone.utc) - timedelta(days=7))
+    cursor_payload = _decode_lifecycle_cursor(cursor)
+    if cursor_payload is not None and cursor_payload["state"] != state:
+        raise HTTPException(422, "cursor does not match lifecycle filters")
+    cursor_threshold = (
+        _utc(datetime.fromisoformat(cursor_payload["closed_since"]))
+        if cursor_payload is not None else None
+    )
+    if cursor_threshold is not None and closed_since is not None and _utc(closed_since) != cursor_threshold:
+        raise HTTPException(422, "cursor does not match lifecycle filters")
+    threshold = cursor_threshold or closed_since or (datetime.now(timezone.utc) - timedelta(days=7))
     lifecycles = session.query(PositionLifecycle).filter_by(agent_id=agent_id).all()
     positions = {
         position.lifecycle_id: position
@@ -355,20 +400,7 @@ async def get_lifecycles(
                 net_result_pct=(closed_net / invested * Decimal("100") if invested else None),
             ))
 
-    if state == "open":
-        items.sort(key=lambda row: (row.exposure_usd is not None, row.exposure_usd or Decimal("0"), row.lifecycle_id), reverse=True)
-    elif state == "closed":
-        items.sort(key=lambda row: (row.closed_at, row.lifecycle_id), reverse=True)
-    else:
-        open_items = sorted(
-            (row for row in items if row.status == "open"),
-            key=lambda row: (row.last_changed_at, row.lifecycle_id), reverse=True,
-        )
-        closed_items = sorted(
-            (row for row in items if row.status == "closed"),
-            key=lambda row: (row.closed_at, row.lifecycle_id), reverse=True,
-        )
-        items = open_items + closed_items
+    items.sort(key=lambda row: _lifecycle_sort_key(state, row), reverse=True)
 
     current_equity = agent.cash_usd + sum(
         (row.exposure_usd for row in items if row.status == "open" and row.exposure_usd is not None),
@@ -381,8 +413,14 @@ async def get_lifecycles(
             }) if row.status == "open" and row.exposure_usd is not None else row
             for row in items
         ]
-    page = items[offset:offset + limit]
-    next_cursor = _encode_lifecycle_cursor(offset + limit) if offset + limit < len(items) else None
+    if cursor_payload is not None:
+        cursor_key = _lifecycle_cursor_key(state, cursor_payload["key"])
+        items = [row for row in items if _lifecycle_sort_key(state, row) < cursor_key]
+    page = items[:limit]
+    next_cursor = (
+        _encode_lifecycle_cursor(state, threshold, _lifecycle_sort_key(state, page[-1]))
+        if len(items) > limit else None
+    )
     return LifecycleCollectionOut(items=page, next_cursor=next_cursor)
 
 

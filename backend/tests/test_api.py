@@ -272,6 +272,90 @@ def test_lifecycle_collection_order_and_cursor_have_no_gaps_at_equal_timestamps(
     assert second["next_cursor"] is None
 
 
+def test_lifecycle_collection_cursor_survives_an_item_inserted_before_next_page(db_session):
+    agent = _lifecycle_agent(db_session)
+    for symbol, value in (("BTCUSDT", "200"), ("ETHUSDT", "150"), ("SOLUSDT", "100")):
+        execute_buy(db_session, agent, symbol, Decimal(value), Decimal("100"), cycle_id=symbol)
+    client = _client(db_session)
+    _use_fake_market([
+        CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("ETHUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("SOLUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("XRPUSDT", Decimal("100"), Decimal("1")),
+    ])
+
+    first = client.get(f"/api/agents/{agent.id}/lifecycles?limit=1").json()
+    execute_buy(db_session, agent, "XRPUSDT", Decimal("300"), Decimal("100"), cycle_id="new")
+    second = client.get(
+        f"/api/agents/{agent.id}/lifecycles?limit=2&cursor={first['next_cursor']}"
+    ).json()
+
+    assert [row["symbol"] for row in first["items"] + second["items"]] == [
+        "BTCUSDT", "ETHUSDT", "SOLUSDT",
+    ]
+    assert second["next_cursor"] is None
+
+
+def test_lifecycle_collection_cursor_is_bound_to_state_and_closed_since(db_session):
+    agent = _lifecycle_agent(db_session)
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        execute_buy(db_session, agent, symbol, Decimal("100"), Decimal("100"), cycle_id=symbol)
+    client = _client(db_session)
+    _use_fake_market([
+        CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("ETHUSDT", Decimal("100"), Decimal("1")),
+    ])
+    cursor = client.get(f"/api/agents/{agent.id}/lifecycles?limit=1").json()["next_cursor"]
+
+    assert client.get(
+        f"/api/agents/{agent.id}/lifecycles?state=closed&cursor={cursor}"
+    ).status_code == 422
+    assert client.get(
+        f"/api/agents/{agent.id}/lifecycles?closed_since=2020-01-01T00:00:00Z&cursor={cursor}"
+    ).status_code == 422
+
+
+def test_lifecycle_collection_keeps_successive_lives_of_same_symbol_distinct(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="first")
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("1"), Decimal("110"), cycle_id="first-close")
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="second")
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))])
+
+    all_rows = client.get(f"/api/agents/{agent.id}/lifecycles?state=all").json()["items"]
+    closed_rows = client.get(f"/api/agents/{agent.id}/lifecycles?state=closed").json()["items"]
+
+    assert [row["status"] for row in all_rows] == ["open", "closed"]
+    assert len({row["lifecycle_id"] for row in all_rows}) == 2
+    assert [row["lifecycle_id"] for row in closed_rows] == [all_rows[1]["lifecycle_id"]]
+
+
+def test_lifecycle_collection_closed_and_all_use_documented_order_with_ties(db_session):
+    agent = _lifecycle_agent(db_session)
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        execute_buy(db_session, agent, symbol, Decimal("100"), Decimal("100"), cycle_id=f"{symbol}-open")
+        execute_sell(db_session, agent, symbol, Decimal("1"), Decimal("110"), cycle_id=f"{symbol}-close")
+    execute_buy(db_session, agent, "SOLUSDT", Decimal("100"), Decimal("100"), cycle_id="still-open")
+    tied_close = datetime(2026, 7, 12, 12, tzinfo=timezone.utc)
+    closed_lifecycles = db_session.query(PositionLifecycle).filter(
+        PositionLifecycle.closed_at.is_not(None)
+    ).all()
+    for lifecycle in closed_lifecycles:
+        lifecycle.closed_at = tied_close
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("SOLUSDT", Decimal("100"), Decimal("1"))])
+
+    closed_rows = client.get(f"/api/agents/{agent.id}/lifecycles?state=closed").json()["items"]
+    all_rows = client.get(f"/api/agents/{agent.id}/lifecycles?state=all").json()["items"]
+
+    expected_closed_ids = sorted((row.id for row in closed_lifecycles), reverse=True)
+    assert [row["lifecycle_id"] for row in closed_rows] == expected_closed_ids
+    assert [row["status"] for row in all_rows] == ["open", "closed", "closed"]
+    assert [row["lifecycle_id"] for row in all_rows[1:]] == expected_closed_ids
+
+
 def test_open_lifecycle_api_tracks_increase_partial_close_and_second_life(db_session):
     agent = Agent(name="Lifecycle API", duration_start=datetime.now(timezone.utc),
                   duration_end=datetime.now(timezone.utc) + timedelta(days=1),
