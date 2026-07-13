@@ -52,7 +52,8 @@ def _decode_lifecycle_cursor(cursor: str | None) -> dict | None:
         padded = cursor + "=" * (-len(cursor) % 4)
         payload = json.loads(base64.b64decode(padded, altchars=b"-_", validate=True).decode())
         if (
-            payload.get("v") != 1
+            not isinstance(payload, dict)
+            or payload.get("v") != 1
             or type(payload.get("agent_id")) is not int
             or payload.get("state") not in ("open", "closed", "all")
             or not isinstance(payload.get("closed_since"), str)

@@ -336,6 +336,10 @@ def test_lifecycle_collection_rejects_cross_agent_and_non_finite_cursors(db_sess
     invalid = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
     assert client.get(f"/api/agents/{agent.id}/lifecycles?cursor={invalid}").status_code == 422
 
+    for non_object in ([], None, "cursor", 1):
+        invalid = base64.urlsafe_b64encode(json.dumps(non_object).encode()).decode().rstrip("=")
+        assert client.get(f"/api/agents/{agent.id}/lifecycles?cursor={invalid}").status_code == 422
+
 
 def test_lifecycle_collection_keeps_successive_lives_of_same_symbol_distinct(db_session):
     agent = _lifecycle_agent(db_session)
