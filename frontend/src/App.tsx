@@ -194,7 +194,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
         setPositionCursor(page.next_cursor);
       })
       .catch((error) => {
-        lifecyclePaginationExpanded.current = false;
+        if (lifecycleRequest.current === request && lifecycleFetch.current === fetch)
+          lifecyclePaginationExpanded.current = false;
         onErr(error);
       })
       .finally(() => {
