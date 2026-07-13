@@ -143,13 +143,13 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     return () => clearInterval(h);
   }, [selId]);
 
-  const lifecycleOptions = () => ({
+  const lifecycleOptions = useMemo(() => ({
     state: positionState,
     limit: 50,
     ...(!allHistory && positionState !== "open"
       ? { closedSince: `${closedSince}T00:00:00.000Z` }
       : {}),
-  });
+  }), [positionState, allHistory, closedSince]);
 
   useEffect(() => {
     if (selId == null) return;
@@ -161,7 +161,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     setPositionCursor(null);
     const load = () => {
       const fetch = ++lifecycleFetch.current;
-      return getLifecycles(selId, lifecycleOptions())
+      return getLifecycles(selId, lifecycleOptions)
       .then((page) => {
         if (lifecycleRequest.current !== request || lifecycleFetch.current !== fetch) return;
         setPositions(page.items);
@@ -174,7 +174,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       if (!lifecyclePaginationExpanded.current) load();
     }, 15000);
     return () => clearInterval(h);
-  }, [selId, positionState, closedSince, allHistory]);
+  }, [selId, lifecycleOptions]);
 
   const loadMorePositions = () => {
     if (selId == null || positionCursor == null || lifecycleLoadMorePending.current) return;
@@ -183,7 +183,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     lifecycleLoadMorePending.current = true;
     lifecyclePaginationExpanded.current = true;
     setPositionsLoadingMore(true);
-    getLifecycles(selId, { ...lifecycleOptions(), cursor: positionCursor })
+    getLifecycles(selId, { ...lifecycleOptions, cursor: positionCursor })
       .then((page) => {
         if (lifecycleRequest.current !== request || lifecycleFetch.current !== fetch) return;
         setPositions((current) => {
