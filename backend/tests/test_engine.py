@@ -1,7 +1,7 @@
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone
-from app.db.models import Agent, Position, Trade
+from app.db.models import Agent, Position, PositionEvaluation, PositionLifecycle, Trade
 from app.trading.engine import execute_buy, execute_sell
 
 
@@ -20,6 +20,8 @@ def test_buy_spends_cash_with_fee_and_creates_position(db_session):
     assert agent.cash_usd == Decimal("49.95")
     assert trade.side == "BUY"
     assert trade.fee == Decimal("0.05")
+    assert trade.lifecycle_id is not None
+    assert trade.cycle_id is not None
     pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
     assert pos.quantity == Decimal("0.5")
     assert pos.avg_price == Decimal("100")
@@ -126,3 +128,80 @@ def test_full_close_payload_carries_position_summary(db_session):
     assert Decimal(s["realized_total_usd"]) == Decimal("15")
     assert Decimal(s["realized_total_pct"]) == Decimal("30")
     assert db_session.query(Position).first() is None
+
+
+def test_trades_keep_one_lifecycle_until_close_then_open_a_second_life(db_session):
+    agent = _agent(db_session, "300")
+
+    first = execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"), cycle_id="c1")
+    increase = execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"), cycle_id="c2")
+    partial = execute_sell(db_session, agent, "BTCUSDT", Decimal("0.4"), Decimal("120"), cycle_id="c3")
+    close = execute_sell(db_session, agent, "BTCUSDT", Decimal("0.6"), Decimal("130"), cycle_id="c4")
+    second = execute_buy(db_session, agent, "BTCUSDT", Decimal("40"), Decimal("80"), cycle_id="c5")
+
+    assert {first.lifecycle_id, increase.lifecycle_id, partial.lifecycle_id, close.lifecycle_id} == {
+        first.lifecycle_id
+    }
+    assert first.lifecycle_id is not None
+    assert second.lifecycle_id != first.lifecycle_id
+    assert [t.cycle_id for t in (first, increase, partial, close, second)] == ["c1", "c2", "c3", "c4", "c5"]
+    lifecycles = db_session.query(PositionLifecycle).order_by(PositionLifecycle.opened_at).all()
+    assert lifecycles[0].closed_at is not None
+    assert lifecycles[1].closed_at is None
+    assert db_session.query(Position).one().lifecycle_id == second.lifecycle_id
+
+
+def test_buy_rolls_back_trade_evaluation_and_projection_together(db_session):
+    from sqlalchemy import event
+
+    agent = _agent(db_session, "100")
+
+    def fail_evaluation(_mapper, _connection, _target):
+        raise RuntimeError("evaluation unavailable")
+
+    event.listen(PositionEvaluation, "before_insert", fail_evaluation)
+    try:
+        with pytest.raises(RuntimeError, match="evaluation unavailable"):
+            execute_buy(
+                db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"),
+                cycle_id="atomic", rationale="test",
+            )
+    finally:
+        event.remove(PositionEvaluation, "before_insert", fail_evaluation)
+
+    assert db_session.query(Trade).count() == 0
+    assert db_session.query(PositionEvaluation).count() == 0
+    assert db_session.query(Position).count() == 0
+    assert db_session.query(PositionLifecycle).count() == 0
+    db_session.refresh(agent)
+    assert agent.cash_usd == Decimal("100")
+
+
+def test_sell_rolls_back_trade_evaluation_and_projection_together(db_session):
+    from sqlalchemy import event
+
+    agent = _agent(db_session, "200")
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="open")
+    position = db_session.query(Position).one()
+    cash_before = agent.cash_usd
+
+    def fail_evaluation(_mapper, _connection, target):
+        if target.action == "SELL":
+            raise RuntimeError("sell evaluation unavailable")
+
+    event.listen(PositionEvaluation, "before_insert", fail_evaluation)
+    try:
+        with pytest.raises(RuntimeError, match="sell evaluation unavailable"):
+            execute_sell(
+                db_session, agent, "BTCUSDT", Decimal("0.4"), Decimal("120"),
+                cycle_id="partial", rationale="trim",
+            )
+    finally:
+        event.remove(PositionEvaluation, "before_insert", fail_evaluation)
+
+    db_session.refresh(agent)
+    db_session.refresh(position)
+    assert agent.cash_usd == cash_before
+    assert position.quantity == Decimal("1")
+    assert db_session.query(Trade).count() == 1
+    assert db_session.query(PositionEvaluation).count() == 1

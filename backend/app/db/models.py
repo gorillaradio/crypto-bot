@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint, Boolean, Integer, JSON
+from sqlalchemy import ForeignKey, Numeric, String, DateTime, UniqueConstraint, Boolean, Integer, JSON, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -40,6 +40,9 @@ class Position(Base):
     __tablename__ = "positions"
     id: Mapped[int] = mapped_column(primary_key=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
+    lifecycle_id: Mapped[str | None] = mapped_column(
+        ForeignKey("position_lifecycles.id"), unique=True, index=True, nullable=True
+    )
     symbol: Mapped[str] = mapped_column(String(20))
     quantity: Mapped[Decimal] = mapped_column(Numeric(28, 12))
     avg_price: Mapped[Decimal] = mapped_column(Numeric(20, 8))
@@ -59,12 +62,47 @@ class Trade(Base):
     __tablename__ = "trades"
     id: Mapped[int] = mapped_column(primary_key=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
+    lifecycle_id: Mapped[str | None] = mapped_column(
+        ForeignKey("position_lifecycles.id"), index=True, nullable=True
+    )
+    cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     symbol: Mapped[str] = mapped_column(String(20))
     side: Mapped[str] = mapped_column(String(4))
     quantity: Mapped[Decimal] = mapped_column(Numeric(28, 12))
     price: Mapped[Decimal] = mapped_column(Numeric(20, 8))
     fee: Mapped[Decimal] = mapped_column(Numeric(20, 8))
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class PositionLifecycle(Base):
+    __tablename__ = "position_lifecycles"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), index=True)
+    symbol: Mapped[str] = mapped_column(String(20), index=True)
+    opening_cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    last_cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class PositionEvaluation(Base):
+    __tablename__ = "position_evaluations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), index=True)
+    lifecycle_id: Mapped[str] = mapped_column(ForeignKey("position_lifecycles.id"), index=True)
+    cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    action: Mapped[str] = mapped_column(String(8))
+    rationale: Mapped[str | None] = mapped_column(String, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+def _reject_ledger_mutation(_mapper, _connection, _target) -> None:
+    raise ValueError("canonical ledger rows are append-only")
+
+
+for _ledger_model in (Trade, PositionEvaluation):
+    event.listen(_ledger_model, "before_update", _reject_ledger_mutation)
+    event.listen(_ledger_model, "before_delete", _reject_ledger_mutation)
 
 
 class EquitySnapshot(Base):

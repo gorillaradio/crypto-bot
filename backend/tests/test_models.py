@@ -261,3 +261,49 @@ def test_agent_persists_initial_capital(db_session):
     )
     db_session.add(agent); db_session.commit()
     assert agent.initial_capital_usd == Decimal("100")
+
+
+def test_lifecycle_trade_and_evaluation_persist_canonical_identity(db_session):
+    from app.db.models import PositionEvaluation, PositionLifecycle, Trade
+
+    agent = _mk_agent(db_session)
+    lifecycle = PositionLifecycle(
+        id="life-1", agent_id=agent.id, symbol="BTCUSDT", opening_cycle_id="cycle-1"
+    )
+    db_session.add(lifecycle)
+    db_session.flush()
+    trade = Trade(
+        agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id="cycle-1",
+        symbol="BTCUSDT", side="BUY", quantity=Decimal("0.5"),
+        price=Decimal("100"), fee=Decimal("0.05"),
+    )
+    evaluation = PositionEvaluation(
+        agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id="cycle-1",
+        action="BUY", rationale="momentum",
+    )
+    db_session.add_all([trade, evaluation])
+    db_session.commit()
+
+    assert trade.lifecycle_id == "life-1"
+    assert trade.cycle_id == "cycle-1"
+    assert evaluation.lifecycle_id == trade.lifecycle_id
+    assert lifecycle.closed_at is None
+
+
+def test_position_can_reference_current_lifecycle(db_session):
+    from app.db.models import PositionLifecycle
+
+    agent = _mk_agent(db_session)
+    lifecycle = PositionLifecycle(
+        id="life-open", agent_id=agent.id, symbol="ETHUSDT", opening_cycle_id="cycle-open"
+    )
+    db_session.add(lifecycle)
+    db_session.flush()
+    position = Position(
+        agent_id=agent.id, lifecycle_id=lifecycle.id, symbol="ETHUSDT",
+        quantity=Decimal("1"), avg_price=Decimal("50"),
+    )
+    db_session.add(position)
+    db_session.commit()
+
+    assert position.lifecycle_id == lifecycle.id

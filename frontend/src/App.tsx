@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  getAgents, getEquity, getEvents, getTrades, getPositions, getClosedPositions, getMemory, getMemoryJournal, getDecisions,
+  getAgents, getEquity, getEvents, getTrades, getOpenLifecycles, getClosedPositions, getMemory, getMemoryJournal, getDecisions,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   getBenchmarks, getAgentMetrics, getModelMetrics, getObservations,
-  type Agent, type EquityPoint, type AgentEvent, type Trade, type Position, type ClosedPosition, type AgentMemory, type Role,
+  type Agent, type EquityPoint, type AgentEvent, type Trade, type OpenLifecycle, type ClosedPosition, type AgentMemory, type Role,
   type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry, type Decision,
   type Observation,
 } from "./api";
@@ -81,7 +81,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [modelMetrics, setModelMetrics] = useState<ModelMetrics[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [positions, setPositions] = useState<OpenLifecycle[]>([]);
   const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
@@ -122,7 +122,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       getAgentMetrics(selId).then(setMetrics).catch(onErr);
       getEvents(selId).then(setEvents).catch(onErr);
       getTrades(selId).then(setTrades).catch(onErr);
-      getPositions(selId).then(setPositions).catch(onErr);
+      getOpenLifecycles(selId).then(setPositions).catch(onErr);
       getClosedPositions(selId).then(setClosedPositions).catch(onErr);
       getDecisions(selId).then(setDecisions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);

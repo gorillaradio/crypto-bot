@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import type { AgentEvent, Position, TradePayload } from "../api";
+import type { AgentEvent, OpenLifecycle, TradePayload } from "../api";
 import {
   Table,
   TableBody,
@@ -37,16 +37,16 @@ function storia(events: AgentEvent[], symbol: string, openedAt: string | null): 
   return items.length ? items.join(" · ") : "—";
 }
 
-export function PositionsTable({ positions, events }: { positions: Position[]; events: AgentEvent[] }) {
+export function PositionsTable({ positions, events }: { positions: OpenLifecycle[]; events: AgentEvent[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   if (!positions.length)
     return <p className="empty">Nessuna posizione aperta — tutto il capitale è in cash.</p>;
 
-  const toggle = (symbol: string) =>
+  const toggle = (lifecycleId: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(symbol)) next.delete(symbol);
-      else next.add(symbol);
+      if (next.has(lifecycleId)) next.delete(lifecycleId);
+      else next.add(lifecycleId);
       return next;
     });
 
@@ -60,7 +60,7 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
           <TableHead className={`${thBase} text-left`}>Coin</TableHead>
           <TableHead className={`${thBase} ${thSpark}`}>Andamento 24h</TableHead>
           <TableHead className={thBase}>Valore</TableHead>
-          <TableHead className={thBase}>Non realizzato</TableHead>
+          <TableHead className={thBase}>Risultato netto</TableHead>
           <TableHead className={thBase}>Già incassato</TableHead>
           <TableHead className={thBase} aria-hidden="true" />
         </TableRow>
@@ -68,15 +68,15 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
       <TableBody className="[&_tr:last-child]:border-0">
         {positions.map((p) => {
           const sym = p.symbol.replace(/USDT$/, "");
-          const isOpen = expanded.has(p.symbol);
+          const isOpen = expanded.has(p.lifecycle_id);
           const realized = Number(p.realized_usd);
           const story = storia(events, p.symbol, p.opened_at);
           return (
-            <Fragment key={p.symbol}>
+            <Fragment key={p.lifecycle_id}>
               <TableRow
-                id={`pos-${sym}`}
+                id={`pos-${p.lifecycle_id}`}
                 className="border-0 hover:bg-transparent cursor-pointer"
-                onClick={() => toggle(p.symbol)}
+                onClick={() => toggle(p.lifecycle_id)}
               >
                 {/* First column: left-aligned, bold coin name (original .coin) */}
                 <TableCell className={`${tdBase} text-left font-semibold`}>
@@ -90,11 +90,11 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
                 <TableCell className={`${tdBase} ${tdSpark}`}>
                   <Sparkline symbol={p.symbol} />
                 </TableCell>
-                <TableCell className={tdBase}>{p.market_value == null ? "—" : usd(p.market_value)}</TableCell>
+                <TableCell className={tdBase}>{p.exposure_usd == null ? "—" : usd(p.exposure_usd)}</TableCell>
                 <TableCell className={tdBase}>
-                  {p.unrealized_pnl_pct == null ? "—" : (
-                    <span className={Number(p.unrealized_pnl_pct) >= 0 ? "pos" : "neg"}>
-                      {pct(p.unrealized_pnl_pct)}
+                  {p.net_result_pct == null ? "—" : (
+                    <span className={Number(p.net_result_pct) >= 0 ? "pos" : "neg"}>
+                      {pct(p.net_result_pct)}
                     </span>
                   )}
                 </TableCell>
@@ -115,7 +115,7 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
                     className="bg-transparent border-0 cursor-pointer p-0 text-muted-foreground hover:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggle(p.symbol);
+                      toggle(p.lifecycle_id);
                     }}
                   >
                     {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -131,7 +131,7 @@ export function PositionsTable({ positions, events }: { positions: Position[]; e
                   >
                     {story !== "—" && <div>storia: {story}</div>}
                     quantità {qty(p.quantity)} · costo medio {price(p.avg_price)} · prezzo attuale{" "}
-                    {p.last_price == null ? "—" : price(p.last_price)} · costo totale {usd(p.cost_basis)}
+                    {p.last_price == null ? "—" : price(p.last_price)} · costo totale {usd(p.cost_basis)} · fee {usd(p.fees_usd)}
                   </TableCell>
                 </TableRow>
               )}

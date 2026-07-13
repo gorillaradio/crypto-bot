@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+from uuid import uuid4
 from app.core.config import settings
-from app.db.models import Agent, Position, Trade, Event
+from app.db.models import Agent, Event, Position, PositionEvaluation, PositionLifecycle, Trade
 
 
 def _trim(s: str) -> str:
@@ -25,8 +26,19 @@ def _as_utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def _persist_trade_atomically(session, trade: Trade, event: Event) -> None:
+    try:
+        session.flush()
+        event.payload = {**(event.payload or {}), "trade_id": trade.id}
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+
 def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: Decimal,
                 cycle_id: str | None = None, rationale: str | None = None) -> Trade:
+    cycle_id = cycle_id or uuid4().hex
     notional = usd_amount
     fee = notional * settings.fee_rate
     total_cost = notional + fee
@@ -37,34 +49,69 @@ def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: De
 
     pos = _get_position(session, agent.id, symbol)
     is_new = pos is None
+    now = datetime.now(timezone.utc)
     if is_new:
+        lifecycle = PositionLifecycle(
+            id=uuid4().hex, agent_id=agent.id, symbol=symbol,
+            opening_cycle_id=cycle_id, last_cycle_id=cycle_id, opened_at=now,
+        )
+        session.add(lifecycle)
         pos = Position(agent_id=agent.id, symbol=symbol, quantity=quantity, avg_price=ask,
-                       opened_at=datetime.now(timezone.utc),
+                       lifecycle_id=lifecycle.id, opened_at=now,
                        invested_usd=notional, realized_usd=Decimal("0"))
         session.add(pos)
     else:
+        lifecycle = session.get(PositionLifecycle, pos.lifecycle_id) if pos.lifecycle_id else None
+        if lifecycle is None:
+            lifecycle = PositionLifecycle(
+                id=uuid4().hex, agent_id=agent.id, symbol=symbol,
+                opening_cycle_id=cycle_id, last_cycle_id=cycle_id,
+                opened_at=pos.opened_at or now,
+            )
+            session.add(lifecycle)
+            pos.lifecycle_id = lifecycle.id
+        lifecycle.last_cycle_id = cycle_id
         new_qty = pos.quantity + quantity
         pos.avg_price = (pos.avg_price * pos.quantity + ask * quantity) / new_qty
         pos.quantity = new_qty
         pos.invested_usd = (pos.invested_usd or Decimal("0")) + notional
 
-    trade = Trade(agent_id=agent.id, symbol=symbol, side="BUY",
-                  quantity=quantity, price=ask, fee=fee)
+    trade = Trade(agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id=cycle_id,
+                  symbol=symbol, side="BUY", quantity=quantity, price=ask, fee=fee,
+                  timestamp=now)
     session.add(trade)
+    session.add(PositionEvaluation(
+        agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id=cycle_id,
+        action="BUY", rationale=rationale, timestamp=now,
+    ))
     payload = {"side": "BUY", "symbol": symbol, "qty": str(quantity), "price": str(ask),
                "fee": str(fee), "usd_value": str(notional), "rationale": rationale,
-               "position": "new" if is_new else "increase"}
-    session.add(Event(agent_id=agent.id, kind="trade", cycle_id=cycle_id, payload=payload,
-                      message=f"BUY {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(ask)} (fee ${_fmt_price(fee)})"))
-    session.commit()
+               "position": "new" if is_new else "increase", "lifecycle_id": lifecycle.id}
+    event = Event(agent_id=agent.id, kind="trade", cycle_id=cycle_id, payload=payload,
+                  timestamp=now,
+                  message=f"BUY {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(ask)} (fee ${_fmt_price(fee)})")
+    session.add(event)
+    _persist_trade_atomically(session, trade, event)
     return trade
 
 
 def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Decimal,
                  cycle_id: str | None = None, rationale: str | None = None) -> Trade:
+    cycle_id = cycle_id or uuid4().hex
     pos = _get_position(session, agent.id, symbol)
     if pos is None or quantity > pos.quantity:
         raise ValueError("quantità insufficiente")
+    now = datetime.now(timezone.utc)
+    lifecycle = session.get(PositionLifecycle, pos.lifecycle_id) if pos.lifecycle_id else None
+    if lifecycle is None:
+        lifecycle = PositionLifecycle(
+            id=uuid4().hex, agent_id=agent.id, symbol=symbol,
+            opening_cycle_id=cycle_id, last_cycle_id=cycle_id,
+            opened_at=pos.opened_at or now,
+        )
+        session.add(lifecycle)
+        pos.lifecycle_id = lifecycle.id
+    lifecycle.last_cycle_id = cycle_id
     notional = quantity * bid
     fee = notional * settings.fee_rate
     agent.cash_usd = agent.cash_usd + (notional - fee)
@@ -82,7 +129,7 @@ def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Dec
 
     pos.quantity = pos.quantity - quantity
     if pos.quantity <= 0:
-        now = datetime.now(timezone.utc)
+        lifecycle.closed_at = now
         invested = pos.invested_usd or None
         total = pos.realized_usd
         payload["position_summary"] = {
@@ -97,10 +144,18 @@ def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Dec
         }
         session.delete(pos)
 
-    trade = Trade(agent_id=agent.id, symbol=symbol, side="SELL",
-                  quantity=quantity, price=bid, fee=fee)
+    trade = Trade(agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id=cycle_id,
+                  symbol=symbol, side="SELL", quantity=quantity, price=bid, fee=fee,
+                  timestamp=now)
     session.add(trade)
-    session.add(Event(agent_id=agent.id, kind="trade", cycle_id=cycle_id, payload=payload,
-                      message=f"SELL {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(bid)} (fee ${_fmt_price(fee)})"))
-    session.commit()
+    session.add(PositionEvaluation(
+        agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id=cycle_id,
+        action="SELL", rationale=rationale, timestamp=now,
+    ))
+    payload["lifecycle_id"] = lifecycle.id
+    event = Event(agent_id=agent.id, kind="trade", cycle_id=cycle_id, payload=payload,
+                  timestamp=now,
+                  message=f"SELL {_fmt_qty(quantity)} {symbol} @ ${_fmt_price(bid)} (fee ${_fmt_price(fee)})")
+    session.add(event)
+    _persist_trade_atomically(session, trade, event)
     return trade

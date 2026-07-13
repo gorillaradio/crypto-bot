@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes, auth
 from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, Trade, Event, MemoryEntry
+from app.trading.engine import execute_buy, execute_sell
 from app.brain.context import CoinSnapshot
 
 
@@ -140,6 +141,68 @@ def test_get_positions_degrades_to_cost_only_when_market_fails(db_session):
     row = resp.json()[0]
     assert row["last_price"] is None
     assert Decimal(row["cost_basis"]) == Decimal("100")
+
+
+def test_get_open_lifecycles_uses_canonical_ledger_and_returns_net_result(db_session):
+    agent = Agent(name="Ledger API", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("200"), initial_capital_usd=Decimal("200"))
+    db_session.add(agent); db_session.commit()
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"),
+                cycle_id="open-cycle", rationale="open")
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("0.4"), Decimal("120"),
+                 cycle_id="partial-cycle", rationale="trim")
+    # Un payload evento volutamente falso non deve essere una fonte del riepilogo.
+    event = db_session.query(Event).filter_by(kind="trade").order_by(Event.id.desc()).first()
+    event.payload = {**event.payload, "position_summary": {"realized_total_usd": "999999"}}
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))])
+
+    response = client.get(f"/api/agents/{agent.id}/lifecycles/open")
+
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["lifecycle_id"]
+    assert row["cycle_id"] == "partial-cycle"
+    assert row["status"] == "open"
+    assert Decimal(row["quantity"]) == Decimal("0.6")
+    assert Decimal(row["exposure_usd"]) == Decimal("66")
+    assert Decimal(row["fees_usd"]) == Decimal("0.148")
+    assert Decimal(row["net_result_usd"]) == Decimal("13.852")
+    assert Decimal(row["net_result_pct"]) == Decimal("13.852")
+    assert row["evaluation"]["action"] == "SELL"
+    assert row["evaluation"]["rationale"] == "trim"
+
+
+def test_get_open_lifecycles_returns_404_for_missing_agent(db_session):
+    client = _client(db_session)
+    assert client.get("/api/agents/999/lifecycles/open").status_code == 404
+
+
+def test_open_lifecycle_api_tracks_increase_partial_close_and_second_life(db_session):
+    agent = Agent(name="Lifecycle API", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("300"), initial_capital_usd=Decimal("300"))
+    db_session.add(agent); db_session.commit()
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))])
+
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"), cycle_id="open")
+    first_lifecycle = client.get(f"/api/agents/{agent.id}/lifecycles/open").json()[0]["lifecycle_id"]
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"), cycle_id="increase")
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("0.4"), Decimal("120"), cycle_id="partial")
+    row = client.get(f"/api/agents/{agent.id}/lifecycles/open").json()[0]
+    assert row["lifecycle_id"] == first_lifecycle
+    assert row["cycle_id"] == "partial"
+    assert Decimal(row["quantity"]) == Decimal("0.6")
+
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("0.6"), Decimal("120"), cycle_id="close")
+    assert client.get(f"/api/agents/{agent.id}/lifecycles/open").json() == []
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("40"), Decimal("80"), cycle_id="second")
+    second = client.get(f"/api/agents/{agent.id}/lifecycles/open").json()[0]
+    assert second["lifecycle_id"] != first_lifecycle
+    assert second["cycle_id"] == "second"
 
 
 def test_create_agent_persists_model_and_default_provider(db_session):
@@ -304,6 +367,20 @@ def test_delete_agent_removes_agent_and_children(db_session):
     assert db_session.query(EquitySnapshot).filter_by(agent_id=aid).count() == 0
     assert db_session.query(Event).filter_by(agent_id=aid).count() == 0
     assert db_session.query(MemoryEntry).filter_by(agent_id=aid).count() == 0
+
+
+def test_delete_agent_removes_lifecycle_ledger_rows(db_session):
+    from app.db.models import PositionEvaluation, PositionLifecycle
+
+    client = _client(db_session)
+    aid = _mk(client, name="DoomedLedger").json()["id"]
+    agent = db_session.get(Agent, aid)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("25"), Decimal("100"), cycle_id="c1")
+
+    assert client.delete(f"/api/agents/{aid}").status_code == 204
+    assert db_session.query(PositionLifecycle).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(PositionEvaluation).filter_by(agent_id=aid).count() == 0
+    assert db_session.query(Trade).filter_by(agent_id=aid).count() == 0
 
 
 def test_delete_agent_404_when_missing(db_session):

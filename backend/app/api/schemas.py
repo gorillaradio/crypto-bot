@@ -43,6 +43,33 @@ class PositionOut(BaseModel):
     realized_usd: Decimal = Decimal("0")
 
 
+class LifecycleEvaluationOut(BaseModel):
+    action: str
+    rationale: str | None = None
+    cycle_id: str | None = None
+    timestamp: datetime
+
+
+class OpenLifecycleOut(BaseModel):
+    lifecycle_id: str
+    cycle_id: str | None = None
+    symbol: str
+    status: Literal["open"] = "open"
+    opened_at: datetime
+    last_changed_at: datetime
+    quantity: Decimal
+    avg_price: Decimal
+    cost_basis: Decimal
+    last_price: Decimal | None = None
+    exposure_usd: Decimal | None = None
+    fees_usd: Decimal
+    realized_usd: Decimal
+    unrealized_usd: Decimal | None = None
+    net_result_usd: Decimal | None = None
+    net_result_pct: Decimal | None = None
+    evaluation: LifecycleEvaluationOut | None = None
+
+
 class ClosedPositionOut(BaseModel):
     symbol: str
     opened_at: datetime | None = None

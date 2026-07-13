@@ -66,6 +66,28 @@ export type Position = {
   opened_at: string | null;
   realized_usd: string;
 };
+export type LifecycleEvaluation = {
+  action: string; rationale: string | null; cycle_id: string | null; timestamp: string;
+};
+export type OpenLifecycle = {
+  lifecycle_id: string;
+  cycle_id: string | null;
+  symbol: string;
+  status: "open";
+  opened_at: string;
+  last_changed_at: string;
+  quantity: string;
+  avg_price: string;
+  cost_basis: string;
+  last_price: string | null;
+  exposure_usd: string | null;
+  fees_usd: string;
+  realized_usd: string;
+  unrealized_usd: string | null;
+  net_result_usd: string | null;
+  net_result_pct: string | null;
+  evaluation: LifecycleEvaluation | null;
+};
 export type ClosedPosition = {
   symbol: string; opened_at: string | null; closed_at: string; held_minutes: number | null;
   invested_usd: string | null; realized_total_usd: string; realized_total_pct: string | null;
@@ -129,6 +151,8 @@ export const getModelMetrics = () => get<ModelMetrics[]>("/api/metrics/by-model"
 export const getEvents = (id: number) => get<AgentEvent[]>(`/api/agents/${id}/events`);
 export const getTrades = (id: number) => get<Trade[]>(`/api/agents/${id}/trades`);
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
+export const getOpenLifecycles = (id: number) =>
+  get<OpenLifecycle[]>(`/api/agents/${id}/lifecycles/open`);
 export const getClosedPositions = (id: number) => get<ClosedPosition[]>(`/api/agents/${id}/positions/closed`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
 export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);

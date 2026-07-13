@@ -5,8 +5,8 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
-from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
+from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, PositionEvaluation, PositionLifecycle, Trade
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, LifecycleEvaluationOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, OpenLifecycleOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
 from app.brain.brief_store import latest_valid_brief, filter_brief_for
@@ -105,8 +105,8 @@ def delete_agent(agent_id: int, session=Depends(session_dep), _: str = Depends(r
         (session.query(DecisionScore)
          .filter(DecisionScore.decision_record_id.in_(rec_ids))
          .delete(synchronize_session=False))
-    for model in (Position, Trade, EquitySnapshot, Event, MemoryEntry, DecisionRecord,
-                  BenchmarkBasis, BenchmarkSnapshot):
+    for model in (PositionEvaluation, Position, Trade, PositionLifecycle, EquitySnapshot,
+                  Event, MemoryEntry, DecisionRecord, BenchmarkBasis, BenchmarkSnapshot):
         session.query(model).filter_by(agent_id=agent_id).delete(synchronize_session=False)
     session.delete(agent)
     session.commit()
@@ -168,6 +168,74 @@ def get_closed_positions(agent_id: int, session=Depends(session_dep),
         if len(out) >= 50:
             break
     return out
+
+
+@router.get("/agents/{agent_id}/lifecycles/open", response_model=list[OpenLifecycleOut])
+async def get_open_lifecycles(agent_id: int, session=Depends(session_dep),
+                              market=Depends(market_dep),
+                              _: str = Depends(require_viewer_or_admin)):
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "agent not found")
+    rows = (
+        session.query(Position, PositionLifecycle)
+        .join(PositionLifecycle, Position.lifecycle_id == PositionLifecycle.id)
+        .filter(Position.agent_id == agent_id, PositionLifecycle.closed_at.is_(None))
+        .all()
+    )
+    prices: dict[str, Decimal] = {}
+    if rows:
+        try:
+            snapshot = await market.get_universe_snapshot([position.symbol for position, _ in rows])
+            prices = {coin.symbol: coin.price for coin in snapshot}
+        except Exception as exc:
+            logger.warning("open lifecycles: market snapshot failed for agent %s: %s", agent_id, exc)
+    output = []
+    for position, lifecycle in rows:
+        trades = (
+            session.query(Trade)
+            .filter_by(agent_id=agent_id, lifecycle_id=lifecycle.id)
+            .order_by(Trade.timestamp.asc(), Trade.id.asc())
+            .all()
+        )
+        if not trades:
+            continue
+        evaluation = (
+            session.query(PositionEvaluation)
+            .filter_by(agent_id=agent_id, lifecycle_id=lifecycle.id)
+            .order_by(PositionEvaluation.timestamp.desc(), PositionEvaluation.id.desc())
+            .first()
+        )
+        fees = sum((trade.fee for trade in trades), Decimal("0"))
+        last_price = prices.get(position.symbol)
+        unrealized = ((last_price - position.avg_price) * position.quantity
+                      if last_price is not None else None)
+        gross_result = ((position.realized_usd or Decimal("0")) + unrealized
+                        if unrealized is not None else None)
+        net_result = gross_result - fees if gross_result is not None else None
+        invested = position.invested_usd or Decimal("0")
+        output.append(OpenLifecycleOut(
+            lifecycle_id=lifecycle.id,
+            cycle_id=lifecycle.last_cycle_id,
+            symbol=position.symbol,
+            opened_at=lifecycle.opened_at,
+            last_changed_at=trades[-1].timestamp,
+            quantity=position.quantity,
+            avg_price=position.avg_price,
+            cost_basis=position.quantity * position.avg_price,
+            last_price=last_price,
+            exposure_usd=(position.quantity * last_price) if last_price is not None else None,
+            fees_usd=fees,
+            realized_usd=position.realized_usd or Decimal("0"),
+            unrealized_usd=unrealized,
+            net_result_usd=net_result,
+            net_result_pct=(net_result / invested * Decimal("100")) if net_result is not None and invested else None,
+            evaluation=(LifecycleEvaluationOut(
+                action=evaluation.action, rationale=evaluation.rationale,
+                cycle_id=evaluation.cycle_id, timestamp=evaluation.timestamp,
+            ) if evaluation else None),
+        ))
+    return output
 
 
 @router.get("/agents/{agent_id}/equity", response_model=list[EquityPoint])
