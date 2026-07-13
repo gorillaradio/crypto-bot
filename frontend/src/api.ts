@@ -88,6 +88,24 @@ export type OpenLifecycle = {
   net_result_pct: string | null;
   evaluation: LifecycleEvaluation | null;
 };
+export type LifecycleState = "open" | "closed" | "all";
+export type LifecycleSummary = {
+  lifecycle_id: string;
+  symbol: string;
+  status: "open" | "closed";
+  opened_at: string;
+  closed_at: string | null;
+  last_changed_at: string;
+  quantity: string | null;
+  exposure_usd: string | null;
+  portfolio_weight_pct: string | null;
+  held_minutes: number | null;
+  invested_usd: string;
+  fees_usd: string;
+  net_result_usd: string | null;
+  net_result_pct: string | null;
+};
+export type LifecyclePage = { items: LifecycleSummary[]; next_cursor: string | null };
 export type ClosedPosition = {
   symbol: string; opened_at: string | null; closed_at: string; held_minutes: number | null;
   invested_usd: string | null; realized_total_usd: string; realized_total_pct: string | null;
@@ -153,6 +171,15 @@ export const getTrades = (id: number) => get<Trade[]>(`/api/agents/${id}/trades`
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getOpenLifecycles = (id: number) =>
   get<OpenLifecycle[]>(`/api/agents/${id}/lifecycles/open`);
+export function getLifecycles(
+  id: number,
+  options: { state: LifecycleState; closedSince?: string; limit: number; cursor?: string },
+) {
+  const query = new URLSearchParams({ state: options.state, limit: String(options.limit) });
+  if (options.closedSince) query.set("closed_since", options.closedSince);
+  if (options.cursor) query.set("cursor", options.cursor);
+  return get<LifecyclePage>(`/api/agents/${id}/lifecycles?${query}`);
+}
 export const getClosedPositions = (id: number) => get<ClosedPosition[]>(`/api/agents/${id}/positions/closed`);
 export const getMemory = (id: number) => get<AgentMemory>(`/api/agents/${id}/memory`);
 export const getMemoryJournal = (id: number) => get<MemoryEntry[]>(`/api/agents/${id}/memory/journal`);

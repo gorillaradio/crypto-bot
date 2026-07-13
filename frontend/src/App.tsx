@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  getAgents, getEquity, getEvents, getTrades, getOpenLifecycles, getClosedPositions, getMemory, getMemoryJournal, getDecisions,
+  getAgents, getEquity, getEvents, getTrades, getLifecycles, getMemory, getMemoryJournal, getDecisions,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   getBenchmarks, getAgentMetrics, getModelMetrics, getObservations,
-  type Agent, type EquityPoint, type AgentEvent, type Trade, type OpenLifecycle, type ClosedPosition, type AgentMemory, type Role,
+  type Agent, type EquityPoint, type AgentEvent, type Trade, type LifecycleState, type LifecycleSummary, type AgentMemory, type Role,
   type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry, type Decision,
   type Observation,
 } from "./api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { BenchmarkChart } from "./components/BenchmarkChart";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { ModelMetricsPanel } from "./components/ModelMetricsPanel";
 import { PositionsTable } from "./components/PositionsTable";
-import { ClosedPositionsTable } from "./components/ClosedPositionsTable";
 import { TradesTable } from "./components/TradesTable";
 import { EventsFeed } from "./components/EventsFeed";
 import { HealthStrip } from "./components/HealthStrip";
@@ -81,8 +81,16 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [modelMetrics, setModelMetrics] = useState<ModelMetrics[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [positions, setPositions] = useState<OpenLifecycle[]>([]);
-  const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>([]);
+  const [positions, setPositions] = useState<LifecycleSummary[]>([]);
+  const [positionState, setPositionState] = useState<LifecycleState>("open");
+  const [closedSince, setClosedSince] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 7);
+    return date.toISOString().slice(0, 10);
+  });
+  const [allHistory, setAllHistory] = useState(false);
+  const [positionCursor, setPositionCursor] = useState<string | null>(null);
+  const lifecycleRequest = useRef(0);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [memory, setMemory] = useState<AgentMemory | null>(null);
@@ -115,15 +123,12 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     setMemory(null);
     setJournalEntries([]);
     setTrades([]);
-    setClosedPositions([]);
     const load = () => {
       getEquity(selId).then(setEquity).catch(onErr);
       getBenchmarks(selId).then(setBenchmarks).catch(onErr);
       getAgentMetrics(selId).then(setMetrics).catch(onErr);
       getEvents(selId).then(setEvents).catch(onErr);
       getTrades(selId).then(setTrades).catch(onErr);
-      getOpenLifecycles(selId).then(setPositions).catch(onErr);
-      getClosedPositions(selId).then(setClosedPositions).catch(onErr);
       getDecisions(selId).then(setDecisions).catch(onErr);
       getMemory(selId).then(setMemory).catch(onErr);
       getMemoryJournal(selId).then(setJournalEntries).catch(onErr);
@@ -133,6 +138,47 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     const h = setInterval(load, 15000);
     return () => clearInterval(h);
   }, [selId]);
+
+  const lifecycleOptions = () => ({
+    state: positionState,
+    limit: 50,
+    ...(!allHistory && positionState !== "open"
+      ? { closedSince: `${closedSince}T00:00:00.000Z` }
+      : {}),
+  });
+
+  useEffect(() => {
+    if (selId == null) return;
+    const request = ++lifecycleRequest.current;
+    setPositions([]);
+    setPositionCursor(null);
+    const load = () => getLifecycles(selId, lifecycleOptions())
+      .then((page) => {
+        if (lifecycleRequest.current !== request) return;
+        setPositions(page.items);
+        setPositionCursor(page.next_cursor);
+      })
+      .catch(onErr);
+    load();
+    const h = setInterval(load, 15000);
+    return () => clearInterval(h);
+  }, [selId, positionState, closedSince, allHistory]);
+
+  const loadMorePositions = () => {
+    if (selId == null || positionCursor == null) return;
+    const request = lifecycleRequest.current;
+    getLifecycles(selId, { ...lifecycleOptions(), cursor: positionCursor })
+      .then((page) => {
+        if (lifecycleRequest.current !== request) return;
+        setPositions((current) => {
+          const byId = new Map(current.map((item) => [item.lifecycle_id, item]));
+          for (const item of page.items) byId.set(item.lifecycle_id, item);
+          return [...byId.values()];
+        });
+        setPositionCursor(page.next_cursor);
+      })
+      .catch(onErr);
+  };
 
   // Manual Escape handler removed — shadcn Sheet handles Esc + backdrop dismiss natively.
 
@@ -245,10 +291,25 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <Card>
                 <CardContent>
-                  <PanelHead title="Posizioni" hint="cosa ha in portafoglio adesso, e la vita delle posizioni chiuse" />
-                  <PositionsTable positions={positions} events={events} />
-                  <h3 className="text-xs font-semibold text-muted-foreground mt-5 mb-2 tracking-wide">CHIUSE</h3>
-                  <ClosedPositionsTable closed={closedPositions} />
+                  <PanelHead title="Posizioni" hint="vite aperte e chiuse, confrontate con gli stessi criteri" />
+                  <div className="mb-3 flex flex-wrap items-center gap-3">
+                    <div className="seg" role="group" aria-label="Filtra le posizioni">
+                      {(["open", "closed", "all"] as const).map((state) => (
+                        <button key={state} type="button" aria-pressed={positionState === state} onClick={() => setPositionState(state)}>
+                          {{ open: "Aperte", closed: "Chiuse", all: "Tutte" }[state]}
+                        </button>
+                      ))}
+                    </div>
+                    {positionState !== "open" && (
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <label htmlFor="closed-since">Dal</label>
+                        <Input id="closed-since" type="date" value={closedSince} disabled={allHistory} required onChange={(e) => { if (e.target.value) setClosedSince(e.target.value); }} className="h-8 w-auto text-xs" />
+                        <label className="flex items-center gap-1.5"><input type="checkbox" checked={allHistory} onChange={(e) => setAllHistory(e.target.checked)} /> Tutto lo storico</label>
+                      </div>
+                    )}
+                  </div>
+                  <PositionsTable items={positions} state={positionState} />
+                  {positionCursor && <Button variant="outline" size="sm" className="mt-3" onClick={loadMorePositions}>Carica altro</Button>}
                 </CardContent>
               </Card>
               <Card>
