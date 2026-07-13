@@ -107,6 +107,16 @@ def test_open_lifecycles_reject_anonymous_and_revoked_viewer(client, db_session)
     assert client.get("/api/agents/1/lifecycles/open").status_code == 401
 
 
+def test_lifecycle_collection_rejects_anonymous_and_revoked_viewer(client, db_session):
+    assert client.get("/api/agents/1/lifecycles").status_code == 401
+    link = ShareLink(token="collection-viewer")
+    db_session.add(link); db_session.commit()
+    client.post("/api/auth/viewer", json={"token": link.token})
+    assert client.get("/api/agents/1/lifecycles").status_code == 404
+    db_session.delete(link); db_session.commit()
+    assert client.get("/api/agents/1/lifecycles").status_code == 401
+
+
 def test_share_links_are_admin_only(client):
     assert client.get("/api/share-links").status_code == 401
     client.post("/api/auth/login", json={"password": "secret"})

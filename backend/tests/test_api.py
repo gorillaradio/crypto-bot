@@ -1,10 +1,11 @@
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import pytest
+from sqlalchemy import update
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes, auth
-from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, Trade, Event, MemoryEntry
+from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, PositionLifecycle, Trade, Event, MemoryEntry
 from app.trading.engine import execute_buy, execute_sell
 from app.brain.context import CoinSnapshot
 
@@ -178,6 +179,97 @@ def test_get_open_lifecycles_uses_canonical_ledger_and_returns_net_result(db_ses
 def test_get_open_lifecycles_returns_404_for_missing_agent(db_session):
     client = _client(db_session)
     assert client.get("/api/agents/999/lifecycles/open").status_code == 404
+
+
+def _lifecycle_agent(db_session):
+    agent = Agent(name="Lifecycle collection", duration_start=datetime.now(timezone.utc),
+                  duration_end=datetime.now(timezone.utc) + timedelta(days=1),
+                  cash_usd=Decimal("1000"), initial_capital_usd=Decimal("1000"))
+    db_session.add(agent); db_session.commit()
+    return agent
+
+
+def test_lifecycle_collection_defaults_to_open_and_closed_window_is_seven_days(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc")
+    execute_buy(db_session, agent, "ETHUSDT", Decimal("100"), Decimal("100"), cycle_id="eth")
+    execute_sell(db_session, agent, "ETHUSDT", Decimal("1"), Decimal("110"), cycle_id="eth-close")
+    eth_lifecycle = db_session.query(PositionLifecycle).filter_by(symbol="ETHUSDT").one()
+    eth_lifecycle.closed_at = datetime.now(timezone.utc) - timedelta(days=8)
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("BTCUSDT", Decimal("120"), Decimal("1"))])
+
+    assert [row["symbol"] for row in client.get(f"/api/agents/{agent.id}/lifecycles").json()["items"]] == ["BTCUSDT"]
+    assert client.get(f"/api/agents/{agent.id}/lifecycles?state=closed").json()["items"] == []
+    all_rows = client.get(
+        f"/api/agents/{agent.id}/lifecycles?state=all&closed_since=2020-01-01T00:00:00Z"
+    ).json()["items"]
+    assert [row["status"] for row in all_rows] == ["open", "closed"]
+
+
+def test_closed_since_never_filters_open_lifecycles_and_closed_result_is_net_of_fees(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="open")
+    execute_buy(db_session, agent, "ETHUSDT", Decimal("100"), Decimal("100"), cycle_id="closed")
+    execute_sell(db_session, agent, "ETHUSDT", Decimal("1"), Decimal("120"), cycle_id="close")
+    client = _client(db_session)
+    _use_fake_market([CoinSnapshot("BTCUSDT", Decimal("110"), Decimal("1"))])
+
+    body = client.get(
+        f"/api/agents/{agent.id}/lifecycles?state=all&closed_since=2999-01-01T00:00:00Z"
+    ).json()
+
+    assert [row["symbol"] for row in body["items"]] == ["BTCUSDT"]
+    closed = client.get(
+        f"/api/agents/{agent.id}/lifecycles?state=closed&closed_since=2020-01-01T00:00:00Z"
+    ).json()["items"][0]
+    assert Decimal(closed["fees_usd"]) == Decimal("0.22")
+    assert Decimal(closed["net_result_usd"]) == Decimal("19.78")
+    assert Decimal(closed["net_result_pct"]) == Decimal("19.78")
+    assert closed["quantity"] is None and closed["exposure_usd"] is None
+
+
+@pytest.mark.parametrize("query", [
+    "state=wat", "closed_since=nope", "limit=0", "limit=101", "cursor=nope",
+])
+def test_lifecycle_collection_rejects_invalid_query_values(db_session, query):
+    agent = _lifecycle_agent(db_session)
+    assert _client(db_session).get(f"/api/agents/{agent.id}/lifecycles?{query}").status_code == 422
+
+
+@pytest.mark.parametrize("limit", [1, 100])
+def test_lifecycle_collection_accepts_limit_boundaries(db_session, limit):
+    agent = _lifecycle_agent(db_session)
+    response = _client(db_session).get(f"/api/agents/{agent.id}/lifecycles?limit={limit}")
+    assert response.status_code == 200
+
+
+def test_lifecycle_collection_order_and_cursor_have_no_gaps_at_equal_timestamps(db_session):
+    agent = _lifecycle_agent(db_session)
+    for symbol, value in (("BTCUSDT", "100"), ("ETHUSDT", "200"), ("SOLUSDT", "50")):
+        execute_buy(db_session, agent, symbol, Decimal(value), Decimal("100"), cycle_id=symbol)
+    same_time = datetime(2026, 7, 12, 12, tzinfo=timezone.utc)
+    for lifecycle in db_session.query(PositionLifecycle).all():
+        lifecycle.opened_at = same_time
+    db_session.execute(update(Trade).values(timestamp=same_time))
+    db_session.commit()
+    client = _client(db_session)
+    _use_fake_market([
+        CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("ETHUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("SOLUSDT", Decimal("100"), Decimal("1")),
+    ])
+
+    first = client.get(f"/api/agents/{agent.id}/lifecycles?limit=2").json()
+    second = client.get(
+        f"/api/agents/{agent.id}/lifecycles?limit=2&cursor={first['next_cursor']}"
+    ).json()
+
+    symbols = [row["symbol"] for row in first["items"] + second["items"]]
+    assert symbols == ["ETHUSDT", "BTCUSDT", "SOLUSDT"]
+    assert len(symbols) == len(set(symbols)) == 3
+    assert second["next_cursor"] is None
 
 
 def test_open_lifecycle_api_tracks_increase_partial_close_and_second_life(db_session):

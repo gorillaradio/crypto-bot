@@ -1,12 +1,15 @@
+import base64
+import binascii
 import json
 import logging
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Literal
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, PositionEvaluation, PositionLifecycle, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, LifecycleEvaluationOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, OpenLifecycleOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, LifecycleCollectionOut, LifecycleEvaluationOut, LifecycleSummary, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, OpenLifecycleOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
 from app.market.binance import BinanceClient
 from app.agents.preview import render_agent_prompts_preview
 from app.brain.brief_store import latest_valid_brief, filter_brief_for
@@ -29,6 +32,43 @@ def _latest_equity(session, agent: Agent) -> Decimal:
 
 def market_dep() -> BinanceClient:
     return BinanceClient()
+
+
+def _encode_lifecycle_cursor(offset: int) -> str:
+    payload = json.dumps({"offset": offset}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_lifecycle_cursor(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        payload = json.loads(base64.b64decode(padded, altchars=b"-_", validate=True).decode())
+        offset = payload["offset"]
+        if type(offset) is not int or offset < 0:
+            raise ValueError
+        return offset
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError, UnicodeDecodeError, binascii.Error) as exc:
+        raise HTTPException(422, "invalid cursor") from exc
+
+
+def _trade_totals(trades: list[Trade]) -> tuple[Decimal, Decimal, Decimal]:
+    invested = sum(
+        (trade.price * trade.quantity for trade in trades if trade.side == "BUY"),
+        Decimal("0"),
+    )
+    fees = sum((trade.fee for trade in trades), Decimal("0"))
+    cash_flow = sum(
+        ((trade.price * trade.quantity) * (Decimal("1") if trade.side == "SELL" else Decimal("-1"))
+         for trade in trades),
+        Decimal("0"),
+    )
+    return invested, fees, cash_flow - fees
+
+
+def _utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def _agent_out(session, agent: Agent) -> AgentOut:
@@ -236,6 +276,114 @@ async def get_open_lifecycles(agent_id: int, session=Depends(session_dep),
             ) if evaluation else None),
         ))
     return output
+
+
+@router.get("/agents/{agent_id}/lifecycles", response_model=LifecycleCollectionOut)
+async def get_lifecycles(
+    agent_id: int,
+    state: Literal["open", "closed", "all"] = "open",
+    closed_since: datetime | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = None,
+    session=Depends(session_dep),
+    market=Depends(market_dep),
+    _: str = Depends(require_viewer_or_admin),
+):
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "agent not found")
+    offset = _decode_lifecycle_cursor(cursor)
+    threshold = closed_since or (datetime.now(timezone.utc) - timedelta(days=7))
+    lifecycles = session.query(PositionLifecycle).filter_by(agent_id=agent_id).all()
+    positions = {
+        position.lifecycle_id: position
+        for position in session.query(Position).filter_by(agent_id=agent_id).all()
+        if position.lifecycle_id is not None
+    }
+    open_lifecycles = [row for row in lifecycles if row.closed_at is None]
+    prices: dict[str, Decimal] = {}
+    if state in ("open", "all") and open_lifecycles:
+        try:
+            snapshot = await market.get_universe_snapshot([row.symbol for row in open_lifecycles])
+            prices = {coin.symbol: coin.price for coin in snapshot}
+        except Exception as exc:
+            logger.warning("lifecycle collection: market snapshot failed for agent %s: %s", agent_id, exc)
+
+    items: list[LifecycleSummary] = []
+    for lifecycle in lifecycles:
+        is_open = lifecycle.closed_at is None
+        if is_open and state == "closed":
+            continue
+        if not is_open and state == "open":
+            continue
+        if not is_open and _utc(lifecycle.closed_at) < _utc(threshold):
+            continue
+        trades = (
+            session.query(Trade)
+            .filter_by(agent_id=agent_id, lifecycle_id=lifecycle.id)
+            .order_by(Trade.timestamp.asc(), Trade.id.asc())
+            .all()
+        )
+        if not trades:
+            continue
+        invested, fees, closed_net = _trade_totals(trades)
+        if is_open:
+            position = positions.get(lifecycle.id)
+            if position is None:
+                continue
+            last_price = prices.get(lifecycle.symbol)
+            exposure = position.quantity * last_price if last_price is not None else None
+            unrealized = ((last_price - position.avg_price) * position.quantity
+                          if last_price is not None else None)
+            net_result = ((position.realized_usd or Decimal("0")) + unrealized - fees
+                          if unrealized is not None else None)
+            items.append(LifecycleSummary(
+                lifecycle_id=lifecycle.id, symbol=lifecycle.symbol, status="open",
+                opened_at=lifecycle.opened_at, last_changed_at=trades[-1].timestamp,
+                quantity=position.quantity, exposure_usd=exposure, invested_usd=invested,
+                fees_usd=fees, net_result_usd=net_result,
+                net_result_pct=(net_result / invested * Decimal("100")
+                                if net_result is not None and invested else None),
+            ))
+        else:
+            items.append(LifecycleSummary(
+                lifecycle_id=lifecycle.id, symbol=lifecycle.symbol, status="closed",
+                opened_at=lifecycle.opened_at, closed_at=lifecycle.closed_at,
+                last_changed_at=trades[-1].timestamp,
+                held_minutes=max(0, int((_utc(lifecycle.closed_at) - _utc(lifecycle.opened_at)).total_seconds() // 60)),
+                invested_usd=invested, fees_usd=fees, net_result_usd=closed_net,
+                net_result_pct=(closed_net / invested * Decimal("100") if invested else None),
+            ))
+
+    if state == "open":
+        items.sort(key=lambda row: (row.exposure_usd is not None, row.exposure_usd or Decimal("0"), row.lifecycle_id), reverse=True)
+    elif state == "closed":
+        items.sort(key=lambda row: (row.closed_at, row.lifecycle_id), reverse=True)
+    else:
+        open_items = sorted(
+            (row for row in items if row.status == "open"),
+            key=lambda row: (row.last_changed_at, row.lifecycle_id), reverse=True,
+        )
+        closed_items = sorted(
+            (row for row in items if row.status == "closed"),
+            key=lambda row: (row.closed_at, row.lifecycle_id), reverse=True,
+        )
+        items = open_items + closed_items
+
+    current_equity = agent.cash_usd + sum(
+        (row.exposure_usd for row in items if row.status == "open" and row.exposure_usd is not None),
+        Decimal("0"),
+    )
+    if current_equity:
+        items = [
+            row.model_copy(update={
+                "portfolio_weight_pct": row.exposure_usd / current_equity * Decimal("100")
+            }) if row.status == "open" and row.exposure_usd is not None else row
+            for row in items
+        ]
+    page = items[offset:offset + limit]
+    next_cursor = _encode_lifecycle_cursor(offset + limit) if offset + limit < len(items) else None
+    return LifecycleCollectionOut(items=page, next_cursor=next_cursor)
 
 
 @router.get("/agents/{agent_id}/equity", response_model=list[EquityPoint])

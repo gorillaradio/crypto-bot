@@ -70,6 +70,28 @@ class OpenLifecycleOut(BaseModel):
     evaluation: LifecycleEvaluationOut | None = None
 
 
+class LifecycleSummary(BaseModel):
+    lifecycle_id: str
+    symbol: str
+    status: Literal["open", "closed"]
+    opened_at: datetime
+    closed_at: datetime | None = None
+    last_changed_at: datetime
+    quantity: Decimal | None = None
+    exposure_usd: Decimal | None = None
+    portfolio_weight_pct: Decimal | None = None
+    held_minutes: int | None = None
+    invested_usd: Decimal
+    fees_usd: Decimal
+    net_result_usd: Decimal | None = None
+    net_result_pct: Decimal | None = None
+
+
+class LifecycleCollectionOut(BaseModel):
+    items: list[LifecycleSummary]
+    next_cursor: str | None = None
+
+
 class ClosedPositionOut(BaseModel):
     symbol: str
     opened_at: datetime | None = None
