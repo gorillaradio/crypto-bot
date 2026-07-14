@@ -289,6 +289,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                     policy_alignment=action.policy_alignment,
                     override_reason=action.override_reason,
                 ))
+                session.commit()
                 actions += 1
             else:
                 skipped.append({"type": action.type, "symbol": action.symbol,

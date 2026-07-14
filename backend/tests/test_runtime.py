@@ -270,6 +270,43 @@ async def test_run_decision_records_hold_for_open_lifecycle_without_trade(db_ses
     assert lifecycle.last_cycle_id == hold.cycle_id
 
 
+async def test_run_decision_preserves_hold_when_later_trade_rolls_back(db_session):
+    from sqlalchemy import event
+
+    agent = _llm_agent(db_session)
+    opening = runtime.execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"), cycle_id="open",
+    )
+    decision = Decision(actions=[
+        Action(type="HOLD", symbol="BTCUSDT", rationale="stay put"),
+        Action(type="BUY", symbol="ETHUSDT", usd_amount=Decimal("10"), rationale="add"),
+    ])
+    market = FakeMarketLLM(
+        [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1")),
+         CoinSnapshot("ETHUSDT", Decimal("100"), Decimal("1"))],
+        Decimal("100"), (Decimal("99"), Decimal("101")),
+    )
+
+    def fail_buy_evaluation(_mapper, _connection, target):
+        if target.action == "BUY":
+            raise RuntimeError("buy evaluation unavailable")
+
+    event.listen(PositionEvaluation, "before_insert", fail_buy_evaluation)
+    try:
+        await run_decision(db_session, agent, market, ["BTCUSDT", "ETHUSDT"],
+                           brain_decide=lambda ctx, adapter: DecisionResult(decision))
+    finally:
+        event.remove(PositionEvaluation, "before_insert", fail_buy_evaluation)
+
+    holds = db_session.query(PositionEvaluation).filter_by(action="HOLD").all()
+    assert len(holds) == 1
+    assert holds[0].lifecycle_id == opening.lifecycle_id
+    assert db_session.query(Trade).filter_by(symbol="ETHUSDT").count() == 0
+    decision_event = db_session.query(Event).filter_by(kind="decision").one()
+    assert decision_event.payload["executed"] == 1
+    assert decision_event.payload["errors"] == 1
+
+
 async def test_run_decision_does_not_create_lifecycle_for_hold_without_position(db_session):
     agent = _llm_agent(db_session)
     decision = Decision(actions=[Action(type="HOLD", symbol="ETHUSDT", rationale="watch")])
