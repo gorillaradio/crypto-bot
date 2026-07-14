@@ -1,6 +1,6 @@
 import httpx, pytest, respx
 from decimal import Decimal
-from app.market.binance import BinanceClient
+from app.market.binance import BinanceClient, LifecycleMarketSnapshot
 
 BASE = "https://api.binance.com"
 
@@ -94,6 +94,7 @@ async def test_lifecycle_market_snapshot_fetches_quotes_and_hourly_closes(respx_
 
     assert snapshot.prices == {"BTCUSDT": Decimal("110"), "ETHUSDT": Decimal("90")}
     assert snapshot.series_24h["BTCUSDT"] == [Decimal("100"), Decimal("110")]
+    assert snapshot.series_24h["ETHUSDT"] == [Decimal("80"), Decimal("90")]
     assert snapshot.as_of.tzinfo is not None
     assert len(respx_mock.calls) == 3
 
@@ -104,13 +105,18 @@ async def test_lifecycle_market_snapshot_keeps_last_known_value_after_provider_f
     respx_mock.get(f"{BASE}/api/v3/ticker/24hr").mock(
         side_effect=[
             httpx.Response(200, json=[{"symbol": "BTCUSDT", "lastPrice": "110"}]),
-            httpx.ConnectError("provider unavailable"),
+            httpx.Response(200, json=[{"symbol": "BTCUSDT", "lastPrice": "110"}]),
         ]
     )
     respx_mock.get(
         f"{BASE}/api/v3/klines",
         params={"symbol": "BTCUSDT", "interval": "1h", "limit": "24"},
-    ).mock(return_value=httpx.Response(200, json=[[0, "", "", "", "110"]]))
+    ).mock(
+        side_effect=[
+            httpx.Response(200, json=[[0, "", "", "", "110"]]),
+            httpx.ConnectError("provider unavailable"),
+        ]
+    )
     client = BinanceClient()
 
     first = await client.get_lifecycle_market_snapshot(["BTCUSDT"])
@@ -118,4 +124,35 @@ async def test_lifecycle_market_snapshot_keeps_last_known_value_after_provider_f
     with pytest.raises(httpx.ConnectError):
         await client.get_lifecycle_market_snapshot(["BTCUSDT"])
 
-    assert client.last_lifecycle_market_snapshot is first
+    assert client.last_lifecycle_market_snapshot == first
+
+
+async def test_lifecycle_market_snapshot_does_not_expose_mutable_cached_data(respx_mock):
+    respx_mock.get(f"{BASE}/api/v3/ticker/24hr").mock(
+        return_value=httpx.Response(
+            200, json=[{"symbol": "BTCUSDT", "lastPrice": "110"}]
+        )
+    )
+    respx_mock.get(
+        f"{BASE}/api/v3/klines",
+        params={"symbol": "BTCUSDT", "interval": "1h", "limit": "24"},
+    ).mock(return_value=httpx.Response(200, json=[[0, "", "", "", "100"]]))
+    client = BinanceClient()
+
+    returned = await client.get_lifecycle_market_snapshot(["BTCUSDT"])
+    returned.prices["BTCUSDT"] = Decimal("0")
+    returned.series_24h["BTCUSDT"][0] = Decimal("0")
+
+    cached = client.last_lifecycle_market_snapshot
+    assert cached is not None
+    assert cached.prices == {"BTCUSDT": Decimal("110")}
+    assert cached.series_24h == {"BTCUSDT": [Decimal("100")]}
+
+    cached.prices["BTCUSDT"] = Decimal("0")
+    cached.series_24h["BTCUSDT"][0] = Decimal("0")
+
+    assert client.last_lifecycle_market_snapshot == LifecycleMarketSnapshot(
+        as_of=returned.as_of,
+        prices={"BTCUSDT": Decimal("110")},
+        series_24h={"BTCUSDT": [Decimal("100")]},
+    )

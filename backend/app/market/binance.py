@@ -14,10 +14,26 @@ class LifecycleMarketSnapshot:
     series_24h: dict[str, list[Decimal]]
 
 
+def _copy_lifecycle_market_snapshot(
+    snapshot: LifecycleMarketSnapshot,
+) -> LifecycleMarketSnapshot:
+    return LifecycleMarketSnapshot(
+        as_of=snapshot.as_of,
+        prices=dict(snapshot.prices),
+        series_24h={symbol: list(series) for symbol, series in snapshot.series_24h.items()},
+    )
+
+
 class BinanceClient:
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url
-        self.last_lifecycle_market_snapshot: LifecycleMarketSnapshot | None = None
+        self._last_lifecycle_market_snapshot: LifecycleMarketSnapshot | None = None
+
+    @property
+    def last_lifecycle_market_snapshot(self) -> LifecycleMarketSnapshot | None:
+        if self._last_lifecycle_market_snapshot is None:
+            return None
+        return _copy_lifecycle_market_snapshot(self._last_lifecycle_market_snapshot)
 
     async def _get(self, path: str, params: dict) -> object:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=10) as c:
@@ -89,5 +105,5 @@ class BinanceClient:
             prices=prices,
             series_24h=series_24h,
         )
-        self.last_lifecycle_market_snapshot = snapshot
+        self._last_lifecycle_market_snapshot = _copy_lifecycle_market_snapshot(snapshot)
         return snapshot
