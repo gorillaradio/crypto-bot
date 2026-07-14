@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthError, getLifecycleDetail, type LifecycleDetail } from "../api";
@@ -121,8 +121,12 @@ describe("OpenLifecycleDetail", () => {
     );
 
     expect(await screen.findByRole("heading", { name: /ETH/ })).toBeInTheDocument();
-    first.resolve(detail({ symbol: "BTCUSDT" }));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: /BTC/ })).not.toBeInTheDocument());
+    await act(async () => {
+      first.resolve(detail({ symbol: "BTCUSDT" }));
+      await first.promise;
+    });
+    expect(screen.getByRole("heading", { name: /ETH/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /BTC/ })).not.toBeInTheDocument();
   });
 
   it("renders explicit evaluation, net breakdown, market disclosure and collapsed accounting", async () => {
