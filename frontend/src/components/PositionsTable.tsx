@@ -55,10 +55,18 @@ export function PositionsTable({ items, market, state, agentId, onAuthLost }: Pr
   const [frozenItems, setFrozenItems] = useState<LifecycleSummary[]>([]);
   const triggers = useRef(new Map<string, HTMLButtonElement>());
   const emptyState = useRef<HTMLParagraphElement>(null);
+  const tableFallback = useRef<HTMLTableElement>(null);
   const pendingFocusId = useRef<string | null>(null);
   const liveById = new Map(items.map(item => [item.lifecycle_id, item]));
   const displayedItems = selectedId
-    ? frozenItems.map(item => liveById.get(item.lifecycle_id) ?? item)
+    ? frozenItems.map(item => {
+        const liveItem = liveById.get(item.lifecycle_id);
+        return item.lifecycle_id === selectedId
+          && item.status === "open"
+          && liveItem?.status === "closed"
+          ? item
+          : liveItem ?? item;
+      })
     : items;
   const stableTdLeft = `${tdLeft} ${selectedId ? "align-top" : ""}`;
   const stableTdRight = `${tdRight} ${selectedId ? "align-top" : ""}`;
@@ -84,7 +92,7 @@ export function PositionsTable({ items, market, state, agentId, onAuthLost }: Pr
       .find(trigger => trigger?.isConnected);
     const target = selectedTrigger?.isConnected
       ? selectedTrigger
-      : firstLiveTrigger ?? emptyState.current;
+      : firstLiveTrigger ?? emptyState.current ?? tableFallback.current;
     if (target?.isConnected) target.focus();
   }, [items, selectedId]);
 
@@ -100,7 +108,12 @@ export function PositionsTable({ items, market, state, agentId, onAuthLost }: Pr
   return (
     <>
       <MarketDisclosure market={market} />
-      <Table className="[border-collapse:collapse] tabular-nums font-mono">
+      <Table
+        ref={tableFallback}
+        tabIndex={-1}
+        aria-label="Lifecycle posizioni"
+        className="[border-collapse:collapse] tabular-nums font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <colgroup>
           <col className="w-[8rem]" />
           <col className="w-[7rem]" />

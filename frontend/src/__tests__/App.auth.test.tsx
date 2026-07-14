@@ -185,6 +185,46 @@ describe("App lifecycle navigation", () => {
     }
   });
 
+  it("keeps a selected open control until Escape reveals its closed row and focuses the table", async () => {
+    const closedBtc = lifecycle({
+      status: "closed",
+      closed_at: "2026-07-14T11:00:00Z",
+      quantity: null,
+      exposure_usd: null,
+      portfolio_weight_pct: null,
+      held_minutes: 120,
+    });
+    vi.mocked(getLifecycles)
+      .mockResolvedValueOnce(lifecyclePage([btc], null) as never)
+      .mockResolvedValueOnce(lifecyclePage([btc], null) as never)
+      .mockResolvedValueOnce(lifecyclePage([closedBtc], null) as never);
+    vi.mocked(getLifecycleDetail).mockResolvedValue(detailBody as never);
+    vi.useFakeTimers();
+    try {
+      render(<App />);
+      await act(async () => { await Promise.resolve(); });
+      fireEvent.click(screen.getByRole("button", { name: "Tutte" }));
+      await act(async () => { await Promise.resolve(); });
+      fireEvent.click(screen.getByRole("button", { name: "Apri dettagli BTC" }));
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByRole("heading", { name: /Dettaglio BTC/ })).toBeInTheDocument();
+
+      await act(async () => { vi.advanceTimersByTime(15_000); await Promise.resolve(); });
+      expect(screen.getByRole("button", { name: "Apri dettagli BTC" })).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByText("Selezionata")).toBeInTheDocument();
+      expect(screen.getByText("Aperta")).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(screen.queryByRole("heading", { name: /Dettaglio BTC/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Apri dettagli BTC" })).not.toBeInTheDocument();
+      expect(screen.getByText("Chiusa")).toBeInTheDocument();
+      expect(screen.getByRole("table", { name: "Lifecycle posizioni" })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("closes detail when view or agent changes", async () => {
     const beta = { ...agent, id: 2, name: "Beta" };
     vi.mocked(getAgents).mockResolvedValue([agent, beta] as never);
