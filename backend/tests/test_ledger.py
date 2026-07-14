@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.db.models import Agent, Position, Trade
+from app.db.models import Agent, Position, PositionEvaluation, Trade
 from app.trading.engine import execute_buy, execute_sell
 from app.trading.ledger import rebuild_agent_state, verify_agent_state
 
@@ -58,3 +58,23 @@ def test_canonical_trade_cannot_be_updated_or_deleted(db_session):
     with pytest.raises(ValueError, match="append-only"):
         db_session.commit()
     db_session.rollback()
+
+
+def test_canonical_position_evaluation_cannot_be_updated_or_deleted(db_session):
+    agent = _agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"), cycle_id="c1")
+    evaluation = db_session.query(PositionEvaluation).one()
+
+    evaluation.rationale = "rewritten"
+    with pytest.raises(ValueError, match="append-only"):
+        db_session.commit()
+    db_session.rollback()
+    db_session.refresh(evaluation)
+    assert evaluation.rationale is None
+
+    evaluation_id = evaluation.id
+    db_session.delete(evaluation)
+    with pytest.raises(ValueError, match="append-only"):
+        db_session.commit()
+    db_session.rollback()
+    assert db_session.get(PositionEvaluation, evaluation_id) is evaluation
