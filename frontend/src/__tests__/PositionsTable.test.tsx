@@ -18,6 +18,7 @@ const lifecycle = (over: Partial<LifecycleSummary> = {}): LifecycleSummary => ({
   fees_usd: "1",
   net_result_usd: "99",
   net_result_pct: "49.5",
+  market_series_24h: null,
   ...over,
 });
 
