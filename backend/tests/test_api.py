@@ -288,6 +288,12 @@ def test_lifecycle_collection_cursor_survives_an_item_inserted_before_next_page(
 
     first = client.get(f"/api/agents/{agent.id}/lifecycles?limit=1").json()
     execute_buy(db_session, agent, "XRPUSDT", Decimal("300"), Decimal("100"), cycle_id="new")
+    _use_fake_market([
+        CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("ETHUSDT", Decimal("100"), Decimal("1")),
+        CoinSnapshot("SOLUSDT", Decimal("500"), Decimal("1")),
+        CoinSnapshot("XRPUSDT", Decimal("100"), Decimal("1")),
+    ])
     second = client.get(
         f"/api/agents/{agent.id}/lifecycles?limit=2&cursor={first['next_cursor']}"
     ).json()

@@ -146,8 +146,8 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const lifecycleOptions = useMemo(() => ({
     state: positionState,
     limit: 50,
-    ...(!allHistory && positionState !== "open"
-      ? { closedSince: `${closedSince}T00:00:00.000Z` }
+    ...(positionState !== "open"
+      ? { closedSince: allHistory ? "1970-01-01T00:00:00.000Z" : `${closedSince}T00:00:00.000Z` }
       : {}),
   }), [positionState, allHistory, closedSince]);
 

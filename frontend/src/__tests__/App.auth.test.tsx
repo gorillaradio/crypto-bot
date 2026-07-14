@@ -106,10 +106,14 @@ describe("App lifecycle navigation", () => {
     expect(screen.getByLabelText("Dal")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Tutto lo storico" }));
-    await waitFor(() => expect(getLifecycles).toHaveBeenLastCalledWith(1, { state: "closed", limit: 50 }));
+    await waitFor(() => expect(getLifecycles).toHaveBeenLastCalledWith(1, {
+      state: "closed", limit: 50, closedSince: "1970-01-01T00:00:00.000Z",
+    }));
 
     fireEvent.click(screen.getByRole("button", { name: "Tutte" }));
-    await waitFor(() => expect(getLifecycles).toHaveBeenLastCalledWith(1, { state: "all", limit: 50 }));
+    await waitFor(() => expect(getLifecycles).toHaveBeenLastCalledWith(1, {
+      state: "all", limit: 50, closedSince: "1970-01-01T00:00:00.000Z",
+    }));
   });
 
   it("carica la pagina successiva concatenando senza duplicare lifecycle", async () => {
