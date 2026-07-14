@@ -128,6 +128,22 @@ describe("PositionsTable", () => {
     expect(detailCell).toHaveClass("align-top", "whitespace-normal");
   });
 
+  it("top-aligns every stable cell beside a one-row detail", () => {
+    render(
+      <PositionsTable {...detailProps} state="open" market={freshMarket} items={[lifecycle()]} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Apri dettagli BTC" }));
+
+    const cells = screen.getAllByRole("cell");
+    expect(cells).toHaveLength(4);
+    for (const cell of cells.slice(0, 3)) {
+      expect(cell).toHaveClass("align-top");
+      expect(cell).not.toHaveClass("align-middle");
+    }
+    expect(cells[3]).toHaveClass("align-top");
+  });
+
   it("changes selection directly and permits only open rows", () => {
     render(
       <PositionsTable
@@ -197,6 +213,22 @@ describe("PositionsTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chiudi dettaglio" }));
     expect(screen.queryByRole("button", { name: "Apri dettagli BTC" })).not.toBeInTheDocument();
     expect(screen.getByText("$200.00")).toBeInTheDocument();
+  });
+
+  it("focuses the first remaining live row after explicitly closing a removed lifecycle", async () => {
+    const first = lifecycle({ lifecycle_id: "life-1", symbol: "BTCUSDT" });
+    const second = lifecycle({ lifecycle_id: "life-2", symbol: "ETHUSDT" });
+    const view = render(
+      <PositionsTable {...detailProps} state="open" market={freshMarket} items={[first, second]} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Apri dettagli BTC" }));
+    view.rerender(
+      <PositionsTable {...detailProps} state="open" market={freshMarket} items={[second]} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Chiudi dettaglio" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Apri dettagli ETH" })).toHaveFocus());
   });
 
   it("does not animate or transform lifecycle body rows", () => {

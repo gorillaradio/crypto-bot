@@ -15,6 +15,7 @@ from app.market.binance import LifecycleMarketSnapshot
 @pytest.fixture(autouse=True)
 def _clear_overrides():
     routes._lifecycle_market_snapshots.clear()
+    routes._lifecycle_detail_market_snapshots.clear()
     app.dependency_overrides[routes.lifecycle_market_dep] = lambda: LifecycleMarketFake(
         LifecycleMarketSnapshot(
             as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
@@ -509,6 +510,43 @@ def test_lifecycle_market_uses_timestamped_stale_snapshot_when_provider_fails(db
 
     assert second["market"] == {"status": "stale", "as_of": first["market"]["as_of"]}
     assert second["items"][0]["exposure_usd"] == first["items"][0]["exposure_usd"]
+
+
+def test_lifecycle_market_detail_snapshot_does_not_replace_collection_stale_fallback(db_session):
+    agent = _lifecycle_agent(db_session)
+    btc_trade = execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc",
+    )
+    execute_buy(db_session, agent, "ETHUSDT", Decimal("100"), Decimal("100"), cycle_id="eth")
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("120"), "ETHUSDT": Decimal("240")},
+        series_24h={
+            "BTCUSDT": [Decimal("100"), Decimal("120")],
+            "ETHUSDT": [Decimal("200"), Decimal("240")],
+        },
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+    collection_url = f"/api/agents/{agent.id}/lifecycles"
+
+    fresh_collection = client.get(collection_url).json()
+    detail = client.get(
+        f"/api/agents/{agent.id}/lifecycles/{btc_trade.lifecycle_id}"
+    ).json()
+    market.fail = True
+    stale_collection = client.get(collection_url).json()
+
+    assert fresh_collection["market"]["status"] == "fresh"
+    assert detail["market"]["status"] == "fresh"
+    fresh_by_symbol = {row["symbol"]: row for row in fresh_collection["items"]}
+    assert set(fresh_by_symbol) == {"BTCUSDT", "ETHUSDT"}
+    assert fresh_by_symbol["BTCUSDT"]["market_series_24h"] == ["100", "120"]
+    assert fresh_by_symbol["ETHUSDT"]["market_series_24h"] == ["200", "240"]
+    assert stale_collection["market"] == {
+        "status": "stale", "as_of": fresh_collection["market"]["as_of"],
+    }
+    assert stale_collection["items"] == fresh_collection["items"]
 
 
 def test_lifecycle_market_explicitly_marks_market_unavailable_without_cache(db_session):

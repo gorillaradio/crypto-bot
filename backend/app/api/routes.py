@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 _lifecycle_market_client = BinanceClient()
 _lifecycle_market_snapshots: dict[int, LifecycleMarketSnapshot] = {}
+_lifecycle_detail_market_snapshots: dict[tuple[int, str], LifecycleMarketSnapshot] = {}
 
 
 def _latest_equity(session, agent: Agent) -> Decimal:
@@ -41,15 +42,19 @@ def lifecycle_market_dep() -> BinanceClient:
 
 
 async def _lifecycle_market_context(
-    market: BinanceClient, agent_id: int, price_symbols: list[str], series_symbols: list[str],
+    market: BinanceClient,
+    snapshot_cache: dict,
+    cache_key: int | tuple[int, str],
+    price_symbols: list[str],
+    series_symbols: list[str],
 ) -> tuple[LifecycleMarketSnapshot | None, LifecycleMarketOut]:
     try:
         snapshot = await market.get_lifecycle_market_snapshot(price_symbols, series_symbols)
-        _lifecycle_market_snapshots[agent_id] = market.last_lifecycle_market_snapshot or snapshot
+        snapshot_cache[cache_key] = market.last_lifecycle_market_snapshot or snapshot
         return snapshot, LifecycleMarketOut(status="fresh", as_of=snapshot.as_of)
     except Exception as exc:
-        logger.warning("lifecycle collection: market snapshot failed for agent %s: %s", agent_id, exc)
-        snapshot = _lifecycle_market_snapshots.get(agent_id)
+        logger.warning("lifecycle market snapshot failed for %s: %s", cache_key, exc)
+        snapshot = snapshot_cache.get(cache_key)
         if (
             snapshot is not None
             and set(price_symbols).issubset(snapshot.prices)
@@ -422,7 +427,7 @@ async def get_lifecycles(
     )
     if price_symbols:
         market_snapshot, market_meta = await _lifecycle_market_context(
-            market, agent_id, price_symbols, series_symbols,
+            market, _lifecycle_market_snapshots, agent_id, price_symbols, series_symbols,
         )
     else:
         market_snapshot = None
@@ -554,7 +559,11 @@ async def get_lifecycle_detail(
         .first()
     )
     snapshot, market_meta = await _lifecycle_market_context(
-        market, agent_id, [lifecycle.symbol], [],
+        market,
+        _lifecycle_detail_market_snapshots,
+        (agent_id, lifecycle.symbol),
+        [lifecycle.symbol],
+        [],
     )
     last_price = snapshot.prices.get(lifecycle.symbol) if snapshot is not None else None
     invested, fees, _closed_net = _trade_totals(trades)

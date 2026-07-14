@@ -162,6 +162,29 @@ describe("App lifecycle navigation", () => {
     }
   });
 
+  it("closes with Escape and focuses the first live row when polling removes the selection", async () => {
+    vi.mocked(getLifecycles)
+      .mockResolvedValueOnce(lifecyclePage([btc, eth], null) as never)
+      .mockResolvedValueOnce(lifecyclePage([ethUpdated], null) as never);
+    vi.mocked(getLifecycleDetail).mockResolvedValue(detailBody as never);
+    vi.useFakeTimers();
+    try {
+      render(<App />);
+      await act(async () => { await Promise.resolve(); });
+      fireEvent.click(screen.getByRole("button", { name: "Apri dettagli BTC" }));
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByRole("heading", { name: /Dettaglio BTC/ })).toBeInTheDocument();
+
+      await act(async () => { vi.advanceTimersByTime(15_000); await Promise.resolve(); });
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(screen.queryByRole("heading", { name: /Dettaglio BTC/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Apri dettagli ETH" })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("closes detail when view or agent changes", async () => {
     const beta = { ...agent, id: 2, name: "Beta" };
     vi.mocked(getAgents).mockResolvedValue([agent, beta] as never);

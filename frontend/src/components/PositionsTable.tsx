@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { LifecycleMarket, LifecycleState, LifecycleSummary } from "../api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -54,21 +54,39 @@ export function PositionsTable({ items, market, state, agentId, onAuthLost }: Pr
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [frozenItems, setFrozenItems] = useState<LifecycleSummary[]>([]);
   const triggers = useRef(new Map<string, HTMLButtonElement>());
+  const emptyState = useRef<HTMLParagraphElement>(null);
+  const pendingFocusId = useRef<string | null>(null);
   const liveById = new Map(items.map(item => [item.lifecycle_id, item]));
   const displayedItems = selectedId
     ? frozenItems.map(item => liveById.get(item.lifecycle_id) ?? item)
     : items;
+  const stableTdLeft = `${tdLeft} ${selectedId ? "align-top" : ""}`;
+  const stableTdRight = `${tdRight} ${selectedId ? "align-top" : ""}`;
 
   const select = (id: string) => {
     if (selectedId === null) setFrozenItems(items);
     setSelectedId(id);
   };
   const close = () => {
-    const trigger = selectedId ? triggers.current.get(selectedId) : undefined;
+    pendingFocusId.current = selectedId;
     setSelectedId(null);
     setFrozenItems([]);
-    queueMicrotask(() => trigger?.focus());
   };
+
+  useEffect(() => {
+    if (selectedId !== null || pendingFocusId.current === null) return;
+    const closedId = pendingFocusId.current;
+    pendingFocusId.current = null;
+    const selectedTrigger = triggers.current.get(closedId);
+    const firstLiveTrigger = items
+      .filter(item => item.status === "open")
+      .map(item => triggers.current.get(item.lifecycle_id))
+      .find(trigger => trigger?.isConnected);
+    const target = selectedTrigger?.isConnected
+      ? selectedTrigger
+      : firstLiveTrigger ?? emptyState.current;
+    if (target?.isConnected) target.focus();
+  }, [items, selectedId]);
 
   if (!displayedItems.length) {
     const copy = state === "open"
@@ -76,7 +94,7 @@ export function PositionsTable({ items, market, state, agentId, onAuthLost }: Pr
       : state === "closed"
         ? "Nessuna posizione chiusa nel periodo selezionato. Amplia il periodo o scegli tutto lo storico."
         : "Non esiste ancora alcun lifecycle. Comparirà qui dopo la prima apertura dell’agente.";
-    return <><MarketDisclosure market={market} /><p className="empty">{copy}</p></>;
+    return <><MarketDisclosure market={market} /><p ref={emptyState} tabIndex={-1} className="empty">{copy}</p></>;
   }
 
   return (
@@ -115,7 +133,7 @@ export function PositionsTable({ items, market, state, agentId, onAuthLost }: Pr
             const isSelected = selectedId === item.lifecycle_id;
             return (
             <TableRow key={item.lifecycle_id} className="border-0 transition-none hover:bg-transparent has-aria-expanded:bg-transparent">
-              <TableCell className={`${tdLeft} font-semibold`}>
+              <TableCell className={`${stableTdLeft} font-semibold`}>
                 {isOpen
                   ? <>
                       <button
@@ -135,10 +153,10 @@ export function PositionsTable({ items, market, state, agentId, onAuthLost }: Pr
                     </>
                   : coin}
               </TableCell>
-              <TableCell className={tdLeft}><Sparkline symbol={item.symbol} closes={item.market_series_24h?.map(Number) ?? null} /></TableCell>
-              {state === "all" && <TableCell className={tdLeft}>{item.status === "open" ? "Aperta" : "Chiusa"}</TableCell>}
-              {state === "open" && <TableCell className={tdRight}>{age(item.opened_at)}</TableCell>}
-              {state === "closed" && <TableCell className={tdRight}>{dateTime(item.closed_at)}</TableCell>}
+              <TableCell className={stableTdLeft}><Sparkline symbol={item.symbol} closes={item.market_series_24h?.map(Number) ?? null} /></TableCell>
+              {state === "all" && <TableCell className={stableTdLeft}>{item.status === "open" ? "Aperta" : "Chiusa"}</TableCell>}
+              {state === "open" && <TableCell className={stableTdRight}>{age(item.opened_at)}</TableCell>}
+              {state === "closed" && <TableCell className={stableTdRight}>{dateTime(item.closed_at)}</TableCell>}
               {selectedId
                 ? index === 0 && (
                     <TableCell rowSpan={displayedItems.length} colSpan={3} className="align-top whitespace-normal border-t border-border px-4 py-2 font-sans">
