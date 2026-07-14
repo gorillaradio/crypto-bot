@@ -67,7 +67,13 @@ export type Position = {
   realized_usd: string;
 };
 export type LifecycleEvaluation = {
-  action: string; rationale: string | null; cycle_id: string | null; timestamp: string;
+  action: "BUY" | "SELL" | "HOLD";
+  rationale: string | null;
+  cycle_id: string | null;
+  timestamp: string;
+  policy_refs: string[];
+  policy_alignment: "follows" | "violates" | "unrelated";
+  override_reason: string;
 };
 export type OpenLifecycle = {
   lifecycle_id: string;
@@ -109,6 +115,39 @@ export type LifecycleSummary = {
 export type LifecycleMarket = {
   status: "fresh" | "stale" | "unavailable";
   as_of: string | null;
+};
+export type LifecycleEconomy = {
+  quantity: string;
+  avg_price: string;
+  last_price: string | null;
+  exposure_usd: string | null;
+  invested_usd: string;
+  realized_usd: string;
+  unrealized_usd: string | null;
+  fees_usd: string;
+  net_result_usd: string | null;
+  net_result_pct: string | null;
+};
+export type LifecycleTrade = {
+  id: number;
+  cycle_id: string | null;
+  side: "BUY" | "SELL";
+  quantity: string;
+  price: string;
+  fee: string;
+  timestamp: string;
+};
+export type LifecycleDetail = {
+  lifecycle_id: string;
+  cycle_id: string | null;
+  symbol: string;
+  status: "open";
+  opened_at: string;
+  last_changed_at: string;
+  evaluation: LifecycleEvaluation | null;
+  economy: LifecycleEconomy;
+  market: LifecycleMarket;
+  trades: LifecycleTrade[];
 };
 export type LifecyclePage = { items: LifecycleSummary[]; next_cursor: string | null; market: LifecycleMarket };
 export type ClosedPosition = {
@@ -176,6 +215,8 @@ export const getTrades = (id: number) => get<Trade[]>(`/api/agents/${id}/trades`
 export const getPositions = (id: number) => get<Position[]>(`/api/agents/${id}/positions`);
 export const getOpenLifecycles = (id: number) =>
   get<OpenLifecycle[]>(`/api/agents/${id}/lifecycles/open`);
+export const getLifecycleDetail = (agentId: number, lifecycleId: string) =>
+  get<LifecycleDetail>(`/api/agents/${agentId}/lifecycles/${lifecycleId}`);
 export function getLifecycles(
   id: number,
   options: { state: LifecycleState; closedSince?: string; limit: number; cursor?: string },
