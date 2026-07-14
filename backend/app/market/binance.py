@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 import httpx
 from app.brain.context import CoinSnapshot
@@ -5,9 +7,17 @@ from app.brain.context import CoinSnapshot
 BASE_URL = "https://api.binance.com"
 
 
+@dataclass(frozen=True)
+class LifecycleMarketSnapshot:
+    as_of: datetime
+    prices: dict[str, Decimal]
+    series_24h: dict[str, list[Decimal]]
+
+
 class BinanceClient:
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url
+        self.last_lifecycle_market_snapshot: LifecycleMarketSnapshot | None = None
 
     async def _get(self, path: str, params: dict) -> object:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=10) as c:
@@ -59,3 +69,25 @@ class BinanceClient:
             out.append(CoinSnapshot(symbol=s, price=Decimal(d["lastPrice"]),
                                     pct_24h=Decimal(d["priceChangePercent"])))
         return out
+
+    async def get_lifecycle_market_snapshot(
+        self, symbols: list[str]
+    ) -> LifecycleMarketSnapshot:
+        distinct_symbols = list(dict.fromkeys(symbols))
+        data = await self._get("/api/v3/ticker/24hr", {})
+        by_symbol = {d["symbol"]: d for d in data}
+        prices = {
+            symbol: Decimal(by_symbol[symbol]["lastPrice"])
+            for symbol in distinct_symbols
+        }
+        series_24h = {
+            symbol: await self.get_klines(symbol, "1h", 24)
+            for symbol in distinct_symbols
+        }
+        snapshot = LifecycleMarketSnapshot(
+            as_of=datetime.now(timezone.utc),
+            prices=prices,
+            series_24h=series_24h,
+        )
+        self.last_lifecycle_market_snapshot = snapshot
+        return snapshot

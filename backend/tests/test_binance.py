@@ -1,4 +1,4 @@
-import httpx, respx
+import httpx, pytest, respx
 from decimal import Decimal
 from app.market.binance import BinanceClient
 
@@ -60,3 +60,62 @@ async def test_get_universe_snapshot_filters_and_parses():
     assert snap[1].price == Decimal("60000.0")
     assert snap[1].pct_24h == Decimal("2.5")
     assert isinstance(snap[0], CoinSnapshot)
+
+
+async def test_lifecycle_market_snapshot_fetches_quotes_and_hourly_closes(respx_mock):
+    respx_mock.get(f"{BASE}/api/v3/ticker/24hr").mock(
+        return_value=httpx.Response(200, json=[
+            {"symbol": "BTCUSDT", "lastPrice": "110"},
+            {"symbol": "ETHUSDT", "lastPrice": "90"},
+        ])
+    )
+    respx_mock.get(
+        f"{BASE}/api/v3/klines",
+        params={"symbol": "BTCUSDT", "interval": "1h", "limit": "24"},
+    ).mock(
+        return_value=httpx.Response(200, json=[
+            [0, "", "", "", "100"],
+            [0, "", "", "", "110"],
+        ])
+    )
+    respx_mock.get(
+        f"{BASE}/api/v3/klines",
+        params={"symbol": "ETHUSDT", "interval": "1h", "limit": "24"},
+    ).mock(
+        return_value=httpx.Response(200, json=[
+            [0, "", "", "", "80"],
+            [0, "", "", "", "90"],
+        ])
+    )
+
+    snapshot = await BinanceClient().get_lifecycle_market_snapshot(
+        ["BTCUSDT", "ETHUSDT", "BTCUSDT"]
+    )
+
+    assert snapshot.prices == {"BTCUSDT": Decimal("110"), "ETHUSDT": Decimal("90")}
+    assert snapshot.series_24h["BTCUSDT"] == [Decimal("100"), Decimal("110")]
+    assert snapshot.as_of.tzinfo is not None
+    assert len(respx_mock.calls) == 3
+
+
+async def test_lifecycle_market_snapshot_keeps_last_known_value_after_provider_failure(
+    respx_mock,
+):
+    respx_mock.get(f"{BASE}/api/v3/ticker/24hr").mock(
+        side_effect=[
+            httpx.Response(200, json=[{"symbol": "BTCUSDT", "lastPrice": "110"}]),
+            httpx.ConnectError("provider unavailable"),
+        ]
+    )
+    respx_mock.get(
+        f"{BASE}/api/v3/klines",
+        params={"symbol": "BTCUSDT", "interval": "1h", "limit": "24"},
+    ).mock(return_value=httpx.Response(200, json=[[0, "", "", "", "110"]]))
+    client = BinanceClient()
+
+    first = await client.get_lifecycle_market_snapshot(["BTCUSDT"])
+
+    with pytest.raises(httpx.ConnectError):
+        await client.get_lifecycle_market_snapshot(["BTCUSDT"])
+
+    assert client.last_lifecycle_market_snapshot is first

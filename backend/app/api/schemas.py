@@ -70,6 +70,11 @@ class OpenLifecycleOut(BaseModel):
     evaluation: LifecycleEvaluationOut | None = None
 
 
+class LifecycleMarketOut(BaseModel):
+    status: Literal["fresh", "stale", "unavailable"]
+    as_of: datetime | None = None
+
+
 class LifecycleSummary(BaseModel):
     lifecycle_id: str
     symbol: str
@@ -85,11 +90,13 @@ class LifecycleSummary(BaseModel):
     fees_usd: Decimal
     net_result_usd: Decimal | None = None
     net_result_pct: Decimal | None = None
+    market_series_24h: list[Decimal] | None = None
 
 
 class LifecycleCollectionOut(BaseModel):
     items: list[LifecycleSummary]
     next_cursor: str | None = None
+    market: LifecycleMarketOut
 
 
 class ClosedPositionOut(BaseModel):
