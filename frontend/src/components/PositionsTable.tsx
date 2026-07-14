@@ -3,8 +3,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { dayShort, hm, pct, usd } from "@/lib/format";
 import { Sparkline } from "./Sparkline";
 
-const th = "text-right text-xs font-medium text-muted-foreground whitespace-nowrap py-0 pb-2 px-2 first:pl-0";
-const td = "text-right whitespace-nowrap py-2 px-2 first:pl-0 border-t border-border border-b-0 tabular-nums font-mono";
+const th = "text-xs font-medium text-muted-foreground whitespace-nowrap py-0 pb-2 px-2 first:pl-0";
+const thLeft = `${th} text-left`;
+const thRight = `${th} text-right`;
+const td = "whitespace-nowrap py-2 px-2 first:pl-0 border-t border-border border-b-0 tabular-nums font-mono";
+const tdLeft = `${td} text-left`;
+const tdRight = `${td} text-right`;
 
 const dateTime = (value: string | null) => value ? `${dayShort(value)} ${hm(value)}` : "—";
 const money = (value: string | null) => value == null ? "—" : usd(value);
@@ -51,25 +55,25 @@ export function PositionsTable({ items, market, state }: { items: LifecycleSumma
       <Table className="[border-collapse:collapse] tabular-nums font-mono">
         <TableHeader className="[&_tr]:border-b-0">
           <TableRow className="border-0 hover:bg-transparent">
-            <TableHead className={`${th} text-left`}>Coin</TableHead>
-            <TableHead className={`${th} text-left`}>24h</TableHead>
-            {state === "all" && <TableHead className={`${th} text-left`}>Stato</TableHead>}
-            {state === "open" && <><TableHead className={th}>Età</TableHead><TableHead className={th}>Esposizione</TableHead><TableHead className={th}>Peso</TableHead></>}
-            {state === "closed" && <><TableHead className={th}>Chiusa</TableHead><TableHead className={th}>Durata</TableHead><TableHead className={th}>Investito</TableHead></>}
-            {state === "all" && <><TableHead className={th}>Ultima attività</TableHead><TableHead className={th}>Capitale</TableHead></>}
-            <TableHead className={th}>Risultato netto</TableHead>
+            <TableHead className={thLeft}>Coin</TableHead>
+            <TableHead className={thLeft}>24h</TableHead>
+            {state === "all" && <TableHead className={thLeft}>Stato</TableHead>}
+            {state === "open" && <><TableHead className={thRight}>Età</TableHead><TableHead className={thRight}>Esposizione</TableHead><TableHead className={thRight}>Peso</TableHead></>}
+            {state === "closed" && <><TableHead className={thRight}>Chiusa</TableHead><TableHead className={thRight}>Durata</TableHead><TableHead className={thRight}>Investito</TableHead></>}
+            {state === "all" && <><TableHead className={thRight}>Ultima attività</TableHead><TableHead className={thRight}>Capitale</TableHead></>}
+            <TableHead className={thRight}>Risultato netto</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody className="[&_tr:last-child]:border-0">
           {items.map((item) => (
             <TableRow key={item.lifecycle_id} className="border-0 hover:bg-transparent">
-              <TableCell className={`${td} text-left font-semibold`}>{item.symbol.replace(/USDT$/, "")}</TableCell>
-              <TableCell className={`${td} text-left`}><Sparkline symbol={item.symbol} closes={item.market_series_24h?.map(Number) ?? null} /></TableCell>
-              {state === "all" && <TableCell className={`${td} text-left`}>{item.status === "open" ? "Aperta" : "Chiusa"}</TableCell>}
-              {state === "open" && <><TableCell className={td}>{age(item.opened_at)}</TableCell><TableCell className={td}>{money(item.exposure_usd)}</TableCell><TableCell className={td}>{percent(item.portfolio_weight_pct)}</TableCell></>}
-              {state === "closed" && <><TableCell className={td}>{dateTime(item.closed_at)}</TableCell><TableCell className={td}>{duration(item.held_minutes)}</TableCell><TableCell className={td}>{money(item.invested_usd)}</TableCell></>}
-              {state === "all" && <><TableCell className={td}>{dateTime(item.last_changed_at)}</TableCell><TableCell className={td}>{money(item.status === "open" ? item.exposure_usd : item.invested_usd)}</TableCell></>}
-              <TableCell className={td}><Result item={item} /></TableCell>
+              <TableCell className={`${tdLeft} font-semibold`}>{item.symbol.replace(/USDT$/, "")}</TableCell>
+              <TableCell className={tdLeft}><Sparkline symbol={item.symbol} closes={item.market_series_24h?.map(Number) ?? null} /></TableCell>
+              {state === "all" && <TableCell className={tdLeft}>{item.status === "open" ? "Aperta" : "Chiusa"}</TableCell>}
+              {state === "open" && <><TableCell className={tdRight}>{age(item.opened_at)}</TableCell><TableCell className={tdRight}>{money(item.exposure_usd)}</TableCell><TableCell className={tdRight}>{percent(item.portfolio_weight_pct)}</TableCell></>}
+              {state === "closed" && <><TableCell className={tdRight}>{dateTime(item.closed_at)}</TableCell><TableCell className={tdRight}>{duration(item.held_minutes)}</TableCell><TableCell className={tdRight}>{money(item.invested_usd)}</TableCell></>}
+              {state === "all" && <><TableCell className={tdRight}>{dateTime(item.last_changed_at)}</TableCell><TableCell className={tdRight}>{money(item.status === "open" ? item.exposure_usd : item.invested_usd)}</TableCell></>}
+              <TableCell className={tdRight}><Result item={item} /></TableCell>
             </TableRow>
           ))}
         </TableBody>
