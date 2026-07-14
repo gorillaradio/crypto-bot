@@ -35,5 +35,8 @@ describe("Sparkline", () => {
 
     rerender(<Sparkline symbol="FOOUSDT" closes={[]} />);
     expect(container.querySelector("svg")).toBeNull();
+
+    rerender(<Sparkline symbol="FOOUSDT" closes={[100]} />);
+    expect(container.querySelector("svg")).toBeNull();
   });
 });

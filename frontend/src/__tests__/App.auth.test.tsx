@@ -22,9 +22,11 @@ vi.mock("../api", () => ({
   getBrief: vi.fn(() => Promise.resolve(null)),
   logout: vi.fn(() => Promise.resolve()),
   exchangeViewerToken: vi.fn(),
-  getKlines: vi.fn(() => Promise.resolve([])),
 }));
 import { AuthError, getMe, getAgents, getLifecycles, exchangeViewerToken } from "../api";
+
+const freshMarket = { status: "fresh", as_of: "2026-07-09T10:20:00Z" };
+const lifecyclePage = (items: unknown[], next_cursor: string | null, market = freshMarket) => ({ items, next_cursor, market });
 
 beforeEach(() => {
   vi.mocked(getAgents).mockResolvedValue([] as never);
@@ -32,7 +34,7 @@ beforeEach(() => {
   vi.mocked(exchangeViewerToken).mockReset();
   window.location.hash = "";
   vi.mocked(getLifecycles).mockReset();
-  vi.mocked(getLifecycles).mockResolvedValue({ items: [], next_cursor: null } as never);
+  vi.mocked(getLifecycles).mockResolvedValue(lifecyclePage([], null) as never);
 });
 
 const agent = {
@@ -95,6 +97,20 @@ describe("App lifecycle navigation", () => {
     expect(screen.queryByRole("button", { name: /ordina/i })).not.toBeInTheDocument();
   });
 
+  it("rende il contesto di mercato della raccolta senza animare l'ordine delle righe", async () => {
+    const market = { status: "stale", as_of: "2026-07-09T10:20:00Z" } as const;
+    const first = { lifecycle_id: "life-1", symbol: "BTCUSDT", status: "open", opened_at: "2026-07-01T00:00:00Z", closed_at: null, last_changed_at: "2026-07-02T00:00:00Z", quantity: "1", exposure_usd: "100", portfolio_weight_pct: "50", held_minutes: null, invested_usd: "100", fees_usd: "1", net_result_usd: "5", net_result_pct: "5", market_series_24h: ["100", "110"] };
+    vi.mocked(getLifecycles).mockResolvedValue(lifecyclePage([first], null, market) as never);
+
+    const { container } = render(<App />);
+
+    expect(await screen.findByRole("img", { name: /andamento 24h/i })).toBeInTheDocument();
+    expect(screen.getByText(/dato di mercato non aggiornato/i)).toHaveTextContent(market.as_of);
+    const row = container.querySelector("tbody tr");
+    expect(row?.className).not.toMatch(/(?:transition-(?:all|transform)|animate-)/);
+    expect(row?.getAttribute("style")).toBeNull();
+  });
+
   it("cambia a Chiuse e Tutte con una finestra temporale osservabile", async () => {
     render(<App />);
     await screen.findByRole("button", { name: "Aperte", pressed: true });
@@ -120,9 +136,9 @@ describe("App lifecycle navigation", () => {
     const first = { lifecycle_id: "life-1", symbol: "BTCUSDT", status: "closed", opened_at: "2026-07-01T00:00:00Z", closed_at: "2026-07-02T00:00:00Z", last_changed_at: "2026-07-02T00:00:00Z", quantity: null, exposure_usd: null, portfolio_weight_pct: null, held_minutes: 1440, invested_usd: "100", fees_usd: "1", net_result_usd: "5", net_result_pct: "5" };
     const second = { ...first, lifecycle_id: "life-2", symbol: "ETHUSDT" };
     vi.mocked(getLifecycles)
-      .mockResolvedValueOnce({ items: [], next_cursor: null } as never)
-      .mockResolvedValueOnce({ items: [first], next_cursor: "next-1" } as never)
-      .mockResolvedValueOnce({ items: [first, second], next_cursor: null } as never);
+      .mockResolvedValueOnce(lifecyclePage([], null) as never)
+      .mockResolvedValueOnce(lifecyclePage([first], "next-1") as never)
+      .mockResolvedValueOnce(lifecyclePage([first, second], null) as never);
 
     render(<App />);
     await screen.findByRole("button", { name: "Aperte", pressed: true });
@@ -141,7 +157,7 @@ describe("App lifecycle navigation", () => {
     const pendingPage = new Promise((resolve) => { resolvePage = resolve; });
     const first = { lifecycle_id: "life-1", symbol: "BTCUSDT", status: "open", opened_at: "2026-07-01T00:00:00Z", closed_at: null, last_changed_at: "2026-07-02T00:00:00Z", quantity: "1", exposure_usd: "100", portfolio_weight_pct: "50", held_minutes: null, invested_usd: "100", fees_usd: "1", net_result_usd: "5", net_result_pct: "5" };
     vi.mocked(getLifecycles)
-      .mockResolvedValueOnce({ items: [first], next_cursor: "next-1" } as never)
+      .mockResolvedValueOnce(lifecyclePage([first], "next-1") as never)
       .mockReturnValueOnce(pendingPage as never);
 
     render(<App />);
@@ -152,16 +168,16 @@ describe("App lifecycle navigation", () => {
 
     expect(getLifecycles).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "Caricamento…" })).toBeDisabled();
-    resolvePage({ items: [], next_cursor: null });
+    resolvePage(lifecyclePage([], null));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Caricamento…" })).not.toBeInTheDocument());
   });
 
   it("riabilita refresh e retry se Carica altro fallisce", async () => {
     const first = { lifecycle_id: "life-1", symbol: "BTCUSDT", status: "open", opened_at: "2026-07-01T00:00:00Z", closed_at: null, last_changed_at: "2026-07-02T00:00:00Z", quantity: "1", exposure_usd: "100", portfolio_weight_pct: "50", held_minutes: null, invested_usd: "100", fees_usd: "1", net_result_usd: "5", net_result_pct: "5" };
     vi.mocked(getLifecycles)
-      .mockResolvedValueOnce({ items: [first], next_cursor: "next-1" } as never)
+      .mockResolvedValueOnce(lifecyclePage([first], "next-1") as never)
       .mockRejectedValueOnce(new Error("network"))
-      .mockResolvedValueOnce({ items: [], next_cursor: null } as never);
+      .mockResolvedValueOnce(lifecyclePage([], null) as never);
 
     render(<App />);
     await screen.findByText("BTC");

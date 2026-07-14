@@ -3,7 +3,7 @@ import {
   getAgents, getEquity, getEvents, getTrades, getLifecycles, getMemory, getMemoryJournal, getDecisions,
   getMe, logout as apiLogout, exchangeViewerToken, AuthError,
   getBenchmarks, getAgentMetrics, getModelMetrics, getObservations,
-  type Agent, type EquityPoint, type AgentEvent, type Trade, type LifecycleState, type LifecycleSummary, type AgentMemory, type Role,
+  type Agent, type EquityPoint, type AgentEvent, type Trade, type LifecycleMarket, type LifecycleState, type LifecycleSummary, type AgentMemory, type Role,
   type BenchmarkPoint, type AgentMetrics, type ModelMetrics, type MemoryEntry, type Decision,
   type Observation,
 } from "./api";
@@ -31,6 +31,7 @@ import { Login } from "./components/Login";
 import { ShareLinksModal } from "./components/ShareLinksModal";
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+const unavailableMarket: LifecycleMarket = { status: "unavailable", as_of: null };
 
 function Return({ pct }: { pct: number }) {
   const up = pct >= 0;
@@ -82,6 +83,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [positions, setPositions] = useState<LifecycleSummary[]>([]);
+  const [positionMarket, setPositionMarket] = useState<LifecycleMarket>(unavailableMarket);
   const [positionState, setPositionState] = useState<LifecycleState>("open");
   const [closedSince, setClosedSince] = useState(() => {
     const date = new Date();
@@ -158,6 +160,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
     lifecycleLoadMorePending.current = false;
     setPositionsLoadingMore(false);
     setPositions([]);
+    setPositionMarket(unavailableMarket);
     setPositionCursor(null);
     const load = () => {
       const fetch = ++lifecycleFetch.current;
@@ -165,6 +168,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
       .then((page) => {
         if (lifecycleRequest.current !== request || lifecycleFetch.current !== fetch) return;
         setPositions(page.items);
+        setPositionMarket(page.market);
         setPositionCursor(page.next_cursor);
       })
       .catch(onErr);
@@ -191,6 +195,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
           for (const item of page.items) byId.set(item.lifecycle_id, item);
           return [...byId.values()];
         });
+        setPositionMarket(page.market);
         setPositionCursor(page.next_cursor);
       })
       .catch((error) => {
@@ -334,7 +339,7 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                       </div>
                     )}
                   </div>
-                  <PositionsTable items={positions} state={positionState} />
+                  <PositionsTable items={positions} market={positionMarket} state={positionState} />
                   {positionCursor && <Button variant="outline" size="sm" className="mt-3" disabled={positionsLoadingMore} onClick={loadMorePositions}>{positionsLoadingMore ? "Caricamento…" : "Carica altro"}</Button>}
                 </CardContent>
               </Card>

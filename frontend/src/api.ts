@@ -106,7 +106,11 @@ export type LifecycleSummary = {
   net_result_pct: string | null;
   market_series_24h: string[] | null;
 };
-export type LifecyclePage = { items: LifecycleSummary[]; next_cursor: string | null };
+export type LifecycleMarket = {
+  status: "fresh" | "stale" | "unavailable";
+  as_of: string | null;
+};
+export type LifecyclePage = { items: LifecycleSummary[]; next_cursor: string | null; market: LifecycleMarket };
 export type ClosedPosition = {
   symbol: string; opened_at: string | null; closed_at: string; held_minutes: number | null;
   invested_usd: string | null; realized_total_usd: string; realized_total_pct: string | null;
