@@ -9,10 +9,17 @@ from app.api import routes, auth
 from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, PositionLifecycle, Trade, Event, MemoryEntry
 from app.trading.engine import execute_buy, execute_sell
 from app.brain.context import CoinSnapshot
+from app.market.binance import LifecycleMarketSnapshot
 
 
 @pytest.fixture(autouse=True)
 def _clear_overrides():
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: LifecycleMarketFake(
+        LifecycleMarketSnapshot(
+            as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+            prices={}, series_24h={},
+        )
+    )
     yield
     app.dependency_overrides.clear()
 
@@ -188,6 +195,139 @@ def _lifecycle_agent(db_session):
                   cash_usd=Decimal("1000"), initial_capital_usd=Decimal("1000"))
     db_session.add(agent); db_session.commit()
     return agent
+
+
+class LifecycleMarketFake:
+    def __init__(self, snapshot: LifecycleMarketSnapshot):
+        self._snapshot = snapshot
+        self._last_snapshot = None
+        self.fail = False
+        self.calls = 0
+
+    @property
+    def last_lifecycle_market_snapshot(self):
+        return self._last_snapshot
+
+    async def get_lifecycle_market_snapshot(self, symbols):
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("market unavailable")
+        self._last_snapshot = self._snapshot
+        return self._snapshot
+
+    async def get_universe_snapshot(self, symbols):
+        return [
+            CoinSnapshot(symbol, self._snapshot.prices[symbol], Decimal("0"))
+            for symbol in symbols
+            if symbol in self._snapshot.prices
+        ]
+
+
+def test_lifecycle_market_returns_one_timestamped_snapshot_for_value_weight_order_and_series(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc")
+    execute_buy(db_session, agent, "ETHUSDT", Decimal("100"), Decimal("100"), cycle_id="eth")
+    agent.cash_usd = Decimal("600")
+    db_session.commit()
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("100"), "ETHUSDT": Decimal("300")},
+        series_24h={
+            "BTCUSDT": [Decimal("100"), Decimal("100")],
+            "ETHUSDT": [Decimal("90"), Decimal("100")],
+        },
+    ))
+    _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+    client = TestClient(app, raise_server_exceptions=False)
+
+    body = client.get(f"/api/agents/{agent.id}/lifecycles").json()
+
+    assert body["market"]["status"] == "fresh"
+    assert body["market"]["as_of"]
+    assert [row["symbol"] for row in body["items"]] == ["ETHUSDT", "BTCUSDT"]
+    assert Decimal(body["items"][0]["exposure_usd"]) == Decimal("300")
+    assert Decimal(body["items"][0]["portfolio_weight_pct"]) == Decimal("30")
+    assert body["items"][0]["market_series_24h"] == ["90", "100"]
+
+
+def test_lifecycle_market_projects_series_onto_closed_rows_in_closed_and_all_states(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "SOLUSDT", Decimal("100"), Decimal("100"), cycle_id="open")
+    execute_sell(db_session, agent, "SOLUSDT", Decimal("1"), Decimal("110"), cycle_id="close")
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc")
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("120"), "SOLUSDT": Decimal("110")},
+        series_24h={
+            "BTCUSDT": [Decimal("100"), Decimal("120")],
+            "SOLUSDT": [Decimal("90"), Decimal("100")],
+        },
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+
+    closed = client.get(f"/api/agents/{agent.id}/lifecycles?state=closed").json()["items"][0]
+    all_rows = client.get(f"/api/agents/{agent.id}/lifecycles?state=all").json()["items"]
+
+    assert closed["exposure_usd"] is None
+    assert closed["market_series_24h"] == ["90", "100"]
+    assert [row["market_series_24h"] for row in all_rows] == [["100", "120"], ["90", "100"]]
+
+
+def test_lifecycle_market_uses_timestamped_stale_snapshot_when_provider_fails(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc")
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("120")},
+        series_24h={"BTCUSDT": [Decimal("100"), Decimal("120")]},
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+    url = f"/api/agents/{agent.id}/lifecycles"
+
+    first = client.get(url).json()
+    market.fail = True
+    second = client.get(url).json()
+
+    assert second["market"] == {"status": "stale", "as_of": first["market"]["as_of"]}
+    assert second["items"][0]["exposure_usd"] == first["items"][0]["exposure_usd"]
+
+
+def test_lifecycle_market_explicitly_marks_market_unavailable_without_cache(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc")
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("120")},
+        series_24h={"BTCUSDT": [Decimal("100"), Decimal("120")]},
+    ))
+    market.fail = True
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+
+    body = client.get(f"/api/agents/{agent.id}/lifecycles").json()
+
+    assert body["market"] == {"status": "unavailable", "as_of": None}
+    assert body["items"][0]["exposure_usd"] is None
+    assert body["items"][0]["portfolio_weight_pct"] is None
+    assert body["items"][0]["market_series_24h"] is None
+
+
+def test_lifecycle_market_does_not_fetch_for_an_empty_displayed_collection(db_session):
+    agent = _lifecycle_agent(db_session)
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={}, series_24h={},
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+
+    body = client.get(f"/api/agents/{agent.id}/lifecycles").json()
+
+    assert body == {"items": [], "next_cursor": None, "market": {"status": "unavailable", "as_of": None}}
+    assert market.calls == 0
 
 
 def test_lifecycle_collection_defaults_to_open_and_closed_window_is_seven_days(db_session):
@@ -631,14 +771,28 @@ def test_create_agent_rejects_nonpositive_take_profit(db_session):
 class FakeMarketPreview:
     def __init__(self, snapshot, price, symbols=None):
         self._snap, self._price, self._symbols = snapshot, price, symbols or ["BTCUSDT"]
+        self._last_lifecycle_market_snapshot = None
     async def get_top_symbols(self, quote, n): return self._symbols
     async def get_universe_snapshot(self, symbols): return self._snap
     async def get_price(self, symbol): return self._price
+    @property
+    def last_lifecycle_market_snapshot(self):
+        return self._last_lifecycle_market_snapshot
+    async def get_lifecycle_market_snapshot(self, symbols):
+        snapshot = LifecycleMarketSnapshot(
+            as_of=datetime.now(timezone.utc),
+            prices={coin.symbol: coin.price for coin in self._snap},
+            series_24h={coin.symbol: [] for coin in self._snap},
+        )
+        self._last_lifecycle_market_snapshot = snapshot
+        return snapshot
 
 
 def _use_fake_market(snapshot=None, price=Decimal("120")):
     snap = snapshot if snapshot is not None else [CoinSnapshot("BTCUSDT", price, Decimal("1"))]
-    app.dependency_overrides[routes.market_dep] = lambda: FakeMarketPreview(snap, price)
+    market = FakeMarketPreview(snap, price)
+    app.dependency_overrides[routes.market_dep] = lambda: market
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
 
 
 def test_get_prompt_returns_three_prompts(db_session):

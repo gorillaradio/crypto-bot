@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, PositionEvaluation, PositionLifecycle, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, LifecycleCollectionOut, LifecycleEvaluationOut, LifecycleSummary, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, OpenLifecycleOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
-from app.market.binance import BinanceClient
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, LifecycleCollectionOut, LifecycleEvaluationOut, LifecycleMarketOut, LifecycleSummary, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, OpenLifecycleOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
+from app.market.binance import BinanceClient, LifecycleMarketSnapshot
 from app.agents.preview import render_agent_prompts_preview
 from app.brain.brief_store import latest_valid_brief, filter_brief_for
 from app.agents.runtime import universe_size
@@ -18,6 +18,7 @@ from app.eval.metrics import total_return_pct, max_drawdown_pct, sharpe, hit_rat
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
+_lifecycle_market_client = BinanceClient()
 
 
 def _latest_equity(session, agent: Agent) -> Decimal:
@@ -32,6 +33,24 @@ def _latest_equity(session, agent: Agent) -> Decimal:
 
 def market_dep() -> BinanceClient:
     return BinanceClient()
+
+
+def lifecycle_market_dep() -> BinanceClient:
+    return _lifecycle_market_client
+
+
+async def _lifecycle_market_context(
+    market: BinanceClient, symbols: list[str], agent_id: int,
+) -> tuple[LifecycleMarketSnapshot | None, LifecycleMarketOut]:
+    try:
+        snapshot = await market.get_lifecycle_market_snapshot(symbols)
+        return snapshot, LifecycleMarketOut(status="fresh", as_of=snapshot.as_of)
+    except Exception as exc:
+        logger.warning("lifecycle collection: market snapshot failed for agent %s: %s", agent_id, exc)
+        snapshot = market.last_lifecycle_market_snapshot
+        if snapshot is not None:
+            return snapshot, LifecycleMarketOut(status="stale", as_of=snapshot.as_of)
+        return None, LifecycleMarketOut(status="unavailable")
 
 
 def _encode_lifecycle_cursor(agent_id: int, state: str, closed_since: datetime, key: tuple) -> str:
@@ -329,7 +348,7 @@ async def get_lifecycles(
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
     session=Depends(session_dep),
-    market=Depends(market_dep),
+    market=Depends(lifecycle_market_dep),
     _: str = Depends(require_viewer_or_admin),
 ):
     agent = session.get(Agent, agent_id)
@@ -357,24 +376,27 @@ async def get_lifecycles(
         for position in session.query(Position).filter_by(agent_id=agent_id).all()
         if position.lifecycle_id is not None
     }
-    open_lifecycles = [row for row in lifecycles if row.closed_at is None]
-    prices: dict[str, Decimal] = {}
-    if state in ("open", "all") and open_lifecycles:
-        try:
-            snapshot = await market.get_universe_snapshot([row.symbol for row in open_lifecycles])
-            prices = {coin.symbol: coin.price for coin in snapshot}
-        except Exception as exc:
-            logger.warning("lifecycle collection: market snapshot failed for agent %s: %s", agent_id, exc)
+    displayed_lifecycles = [
+        lifecycle for lifecycle in lifecycles
+        if not (
+            (lifecycle.closed_at is None and state == "closed")
+            or (lifecycle.closed_at is not None and state == "open")
+            or (lifecycle.closed_at is not None and _utc(lifecycle.closed_at) < _utc(threshold))
+        )
+    ]
+    if displayed_lifecycles:
+        market_snapshot, market_meta = await _lifecycle_market_context(
+            market, [row.symbol for row in displayed_lifecycles], agent_id,
+        )
+    else:
+        market_snapshot = None
+        market_meta = LifecycleMarketOut(status="unavailable")
+    prices = market_snapshot.prices if market_snapshot is not None else {}
+    series_24h = market_snapshot.series_24h if market_snapshot is not None else {}
 
     items: list[LifecycleSummary] = []
-    for lifecycle in lifecycles:
+    for lifecycle in displayed_lifecycles:
         is_open = lifecycle.closed_at is None
-        if is_open and state == "closed":
-            continue
-        if not is_open and state == "open":
-            continue
-        if not is_open and _utc(lifecycle.closed_at) < _utc(threshold):
-            continue
         trades = (
             session.query(Trade)
             .filter_by(agent_id=agent_id, lifecycle_id=lifecycle.id)
@@ -401,6 +423,7 @@ async def get_lifecycles(
                 fees_usd=fees, net_result_usd=net_result,
                 net_result_pct=(net_result / invested * Decimal("100")
                                 if net_result is not None and invested else None),
+                market_series_24h=series_24h.get(lifecycle.symbol),
             ))
         else:
             items.append(LifecycleSummary(
@@ -410,6 +433,7 @@ async def get_lifecycles(
                 held_minutes=max(0, int((_utc(lifecycle.closed_at) - _utc(lifecycle.opened_at)).total_seconds() // 60)),
                 invested_usd=invested, fees_usd=fees, net_result_usd=closed_net,
                 net_result_pct=(closed_net / invested * Decimal("100") if invested else None),
+                market_series_24h=series_24h.get(lifecycle.symbol),
             ))
 
     items.sort(key=lambda row: _lifecycle_sort_key(state, row), reverse=True)
@@ -452,7 +476,7 @@ async def get_lifecycles(
             _encode_lifecycle_cursor(agent_id, state, threshold, _lifecycle_sort_key(state, page[-1]))
             if len(closed_items) > limit else None
         )
-    return LifecycleCollectionOut(items=page, next_cursor=next_cursor)
+    return LifecycleCollectionOut(items=page, next_cursor=next_cursor, market=market_meta)
 
 
 @router.get("/agents/{agent_id}/equity", response_model=list[EquityPoint])
