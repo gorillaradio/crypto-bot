@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import routes, auth
-from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, PositionLifecycle, Trade, Event, MemoryEntry
+from app.db.models import Agent, EquitySnapshot, Agent as AgentModel, Position, PositionEvaluation, PositionLifecycle, Trade, Event, MemoryEntry
 from app.trading.engine import execute_buy, execute_sell
 from app.brain.context import CoinSnapshot
 from app.market.binance import LifecycleMarketSnapshot
@@ -214,7 +214,7 @@ class LifecycleMarketFake:
     async def get_lifecycle_market_snapshot(self, symbols, series_symbols=None):
         self.calls += 1
         self.requested_symbols = list(symbols)
-        self.requested_series_symbols = list(series_symbols or symbols)
+        self.requested_series_symbols = list(symbols if series_symbols is None else series_symbols)
         if self.fail:
             raise RuntimeError("market unavailable")
         snapshot = LifecycleMarketSnapshot(
@@ -222,7 +222,7 @@ class LifecycleMarketFake:
             prices={symbol: self._snapshot.prices[symbol] for symbol in symbols},
             series_24h={
                 symbol: self._snapshot.series_24h[symbol]
-                for symbol in (series_symbols or symbols)
+                for symbol in (symbols if series_symbols is None else series_symbols)
             },
         )
         self._last_snapshot = snapshot
@@ -234,6 +234,209 @@ class LifecycleMarketFake:
             for symbol in symbols
             if symbol in self._snapshot.prices
         ]
+
+
+def test_open_lifecycle_detail_returns_latest_evaluation_economy_and_own_trades(
+    db_session,
+):
+    agent = _lifecycle_agent(db_session)
+    first = execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"),
+        cycle_id="open", rationale="enter", policy_refs=["P001"],
+        policy_alignment="follows",
+    )
+    execute_sell(
+        db_session, agent, "BTCUSDT", Decimal("0.4"), Decimal("120"),
+        cycle_id="partial", rationale="trim",
+    )
+    other = execute_buy(
+        db_session, agent, "ETHUSDT", Decimal("50"), Decimal("50"),
+        cycle_id="other-life",
+    )
+    lifecycle = db_session.get(PositionLifecycle, first.lifecycle_id)
+    db_session.add(PositionEvaluation(
+        agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id="hold",
+        action="HOLD", rationale="thesis intact", policy_refs=["P003"],
+        policy_alignment="follows", override_reason="",
+    ))
+    lifecycle.last_cycle_id = "hold"
+    db_session.commit()
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("130")}, series_24h={},
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+
+    response = client.get(f"/api/agents/{agent.id}/lifecycles/{lifecycle.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["lifecycle_id"] == lifecycle.id
+    assert body["evaluation"] == {
+        "action": "HOLD", "rationale": "thesis intact", "cycle_id": "hold",
+        "timestamp": body["evaluation"]["timestamp"], "policy_refs": ["P003"],
+        "policy_alignment": "follows", "override_reason": "",
+    }
+    economy = body["economy"]
+    assert Decimal(economy["quantity"]) == Decimal("0.6")
+    assert Decimal(economy["avg_price"]) == Decimal("100")
+    assert Decimal(economy["last_price"]) == Decimal("130")
+    assert Decimal(economy["exposure_usd"]) == Decimal("78")
+    assert Decimal(economy["invested_usd"]) == Decimal("100")
+    assert Decimal(economy["realized_usd"]) == Decimal("8")
+    assert Decimal(economy["unrealized_usd"]) == Decimal("18")
+    assert Decimal(economy["fees_usd"]) == Decimal("0.148")
+    assert Decimal(economy["net_result_usd"]) == Decimal("25.852")
+    assert Decimal(economy["net_result_pct"]) == Decimal("25.852")
+    assert [(row["side"], row["cycle_id"]) for row in body["trades"]] == [
+        ("BUY", "open"), ("SELL", "partial"),
+    ]
+    assert all(row["cycle_id"] != other.cycle_id for row in body["trades"])
+
+
+def test_open_lifecycle_detail_declares_missing_evaluation(db_session):
+    agent = _lifecycle_agent(db_session)
+    lifecycle = PositionLifecycle(
+        id="life-no-eval", agent_id=agent.id, symbol="BTCUSDT",
+        opening_cycle_id="open", last_cycle_id="open",
+    )
+    db_session.add(lifecycle)
+    db_session.flush()
+    db_session.add_all([
+        Position(
+            agent_id=agent.id, lifecycle_id=lifecycle.id, symbol="BTCUSDT",
+            quantity=Decimal("1"), avg_price=Decimal("100"),
+            invested_usd=Decimal("100"),
+        ),
+        Trade(
+            agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id="open",
+            symbol="BTCUSDT", side="BUY", quantity=Decimal("1"),
+            price=Decimal("100"), fee=Decimal("0.1"),
+        ),
+    ])
+    db_session.commit()
+    client = _client(db_session)
+
+    response = client.get(f"/api/agents/{agent.id}/lifecycles/{lifecycle.id}")
+
+    assert response.status_code == 200
+    assert response.json()["evaluation"] is None
+
+
+def test_open_lifecycle_detail_normalizes_legacy_evaluation_context(db_session):
+    agent = _lifecycle_agent(db_session)
+    trade = execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"),
+        cycle_id="open",
+    )
+    saved = db_session.query(PositionEvaluation).filter_by(
+        lifecycle_id=trade.lifecycle_id,
+    ).one()
+    evaluation_id = saved.id
+    saved.policy_refs = None
+    saved.policy_alignment = None
+    saved.override_reason = None
+    # Simulate a pre-migration row without mutating the append-only ORM entity.
+    db_session.rollback()
+    db_session.execute(
+        PositionEvaluation.__table__.update()
+        .where(PositionEvaluation.id == evaluation_id)
+        .values(policy_refs=None, policy_alignment=None, override_reason=None)
+    )
+    db_session.commit()
+    client = _client(db_session)
+
+    evaluation = client.get(
+        f"/api/agents/{agent.id}/lifecycles/{trade.lifecycle_id}"
+    ).json()["evaluation"]
+
+    assert evaluation["policy_refs"] == []
+    assert evaluation["policy_alignment"] == "unrelated"
+    assert evaluation["override_reason"] == ""
+
+
+def test_open_lifecycle_detail_uses_fresh_then_stale_market_without_hiding_ledger(
+    db_session,
+):
+    agent = _lifecycle_agent(db_session)
+    trade = execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"),
+        cycle_id="open",
+    )
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("120")}, series_24h={},
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+    url = f"/api/agents/{agent.id}/lifecycles/{trade.lifecycle_id}"
+
+    fresh = client.get(url).json()
+    market.fail = True
+    stale = client.get(url).json()
+
+    assert fresh["market"]["status"] == "fresh"
+    assert stale["market"] == {"status": "stale", "as_of": fresh["market"]["as_of"]}
+    assert stale["trades"] == fresh["trades"]
+    assert stale["economy"]["fees_usd"] == fresh["economy"]["fees_usd"]
+
+
+def test_open_lifecycle_detail_market_unavailable_keeps_canonical_ledger(db_session):
+    agent = _lifecycle_agent(db_session)
+    trade = execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"),
+        cycle_id="open",
+    )
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("120")}, series_24h={},
+    ))
+    market.fail = True
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+
+    body = client.get(
+        f"/api/agents/{agent.id}/lifecycles/{trade.lifecycle_id}"
+    ).json()
+
+    assert body["market"] == {"status": "unavailable", "as_of": None}
+    assert len(body["trades"]) == 1
+    assert Decimal(body["economy"]["fees_usd"]) == Decimal("0.1")
+    for field in (
+        "last_price", "exposure_usd", "unrealized_usd", "net_result_usd",
+        "net_result_pct",
+    ):
+        assert body["economy"][field] is None
+
+
+def test_open_lifecycle_detail_rejects_missing_closed_and_cross_agent_lifecycle(db_session):
+    agent = _lifecycle_agent(db_session)
+    other = _lifecycle_agent(db_session)
+    opened = execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"),
+        cycle_id="open",
+    )
+    closed_trade = execute_buy(
+        db_session, agent, "ETHUSDT", Decimal("100"), Decimal("100"),
+        cycle_id="closed-open",
+    )
+    execute_sell(
+        db_session, agent, "ETHUSDT", Decimal("1"), Decimal("110"),
+        cycle_id="closed-close",
+    )
+    closed = db_session.get(PositionLifecycle, closed_trade.lifecycle_id)
+    client = _client(db_session)
+
+    assert client.get(
+        f"/api/agents/{agent.id}/lifecycles/missing"
+    ).status_code == 404
+    assert client.get(
+        f"/api/agents/{agent.id}/lifecycles/{closed.id}"
+    ).status_code == 404
+    assert client.get(
+        f"/api/agents/{other.id}/lifecycles/{opened.lifecycle_id}"
+    ).status_code == 404
 
 
 def test_lifecycle_market_returns_one_timestamped_snapshot_for_value_weight_order_and_series(db_session):

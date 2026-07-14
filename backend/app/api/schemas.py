@@ -48,6 +48,9 @@ class LifecycleEvaluationOut(BaseModel):
     rationale: str | None = None
     cycle_id: str | None = None
     timestamp: datetime
+    policy_refs: list[str] = []
+    policy_alignment: str = "unrelated"
+    override_reason: str = ""
 
 
 class OpenLifecycleOut(BaseModel):
@@ -73,6 +76,42 @@ class OpenLifecycleOut(BaseModel):
 class LifecycleMarketOut(BaseModel):
     status: Literal["fresh", "stale", "unavailable"]
     as_of: datetime | None = None
+
+
+class LifecycleEconomyOut(BaseModel):
+    quantity: Decimal
+    avg_price: Decimal
+    last_price: Decimal | None = None
+    exposure_usd: Decimal | None = None
+    invested_usd: Decimal
+    realized_usd: Decimal
+    unrealized_usd: Decimal | None = None
+    fees_usd: Decimal
+    net_result_usd: Decimal | None = None
+    net_result_pct: Decimal | None = None
+
+
+class LifecycleTradeOut(BaseModel):
+    id: int
+    cycle_id: str | None = None
+    side: str
+    quantity: Decimal
+    price: Decimal
+    fee: Decimal
+    timestamp: datetime
+
+
+class LifecycleDetailOut(BaseModel):
+    lifecycle_id: str
+    cycle_id: str | None = None
+    symbol: str
+    status: Literal["open"] = "open"
+    opened_at: datetime
+    last_changed_at: datetime
+    evaluation: LifecycleEvaluationOut | None = None
+    economy: LifecycleEconomyOut
+    market: LifecycleMarketOut
+    trades: list[LifecycleTradeOut]
 
 
 class LifecycleSummary(BaseModel):

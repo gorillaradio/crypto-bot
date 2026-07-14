@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import settings
 from app.api.auth import session_dep, require_admin, require_viewer_or_admin
 from app.db.models import Agent, BenchmarkBasis, BenchmarkSnapshot, DecisionRecord, DecisionScore, EquitySnapshot, Event, MemoryEntry, Observation, Position, PositionEvaluation, PositionLifecycle, Trade
-from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, LifecycleCollectionOut, LifecycleEvaluationOut, LifecycleMarketOut, LifecycleSummary, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, OpenLifecycleOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
+from app.api.schemas import AgentCreate, AgentMetricsOut, AgentOut, AgentUpdate, BenchmarkMetric, BenchmarkPoint, ClosedPositionOut, DecisionRecordOut, EquityPoint, EventOut, HighlightOut, LifecycleCollectionOut, LifecycleDetailOut, LifecycleEconomyOut, LifecycleEvaluationOut, LifecycleMarketOut, LifecycleSummary, LifecycleTradeOut, MarketBriefOut, MemoryEntryOut, MemoryOut, ModelMetricsOut, ObservationOut, OpenLifecycleOut, PolicyLineOut, PositionOut, PromptPreviewOut, TradeOut, WindowHitRate
 from app.market.binance import BinanceClient, LifecycleMarketSnapshot
 from app.agents.preview import render_agent_prompts_preview
 from app.brain.brief_store import latest_valid_brief, filter_brief_for
@@ -513,6 +513,106 @@ async def get_lifecycles(
             if len(closed_items) > limit else None
         )
     return LifecycleCollectionOut(items=page, next_cursor=next_cursor, market=market_meta)
+
+
+@router.get("/agents/{agent_id}/lifecycles/{lifecycle_id}", response_model=LifecycleDetailOut)
+async def get_lifecycle_detail(
+    agent_id: int,
+    lifecycle_id: str,
+    session=Depends(session_dep),
+    market=Depends(lifecycle_market_dep),
+    _: str = Depends(require_viewer_or_admin),
+):
+    if session.get(Agent, agent_id) is None:
+        raise HTTPException(404, "agent not found")
+    lifecycle = (
+        session.query(PositionLifecycle)
+        .filter_by(id=lifecycle_id, agent_id=agent_id, closed_at=None)
+        .first()
+    )
+    if lifecycle is None:
+        raise HTTPException(404, "open lifecycle not found")
+    position = (
+        session.query(Position)
+        .filter_by(agent_id=agent_id, lifecycle_id=lifecycle.id)
+        .first()
+    )
+    if position is None:
+        raise HTTPException(404, "open lifecycle position not found")
+    trades = (
+        session.query(Trade)
+        .filter_by(agent_id=agent_id, lifecycle_id=lifecycle.id)
+        .order_by(Trade.timestamp.asc(), Trade.id.asc())
+        .all()
+    )
+    if not trades:
+        raise HTTPException(404, "open lifecycle ledger not found")
+    evaluation = (
+        session.query(PositionEvaluation)
+        .filter_by(agent_id=agent_id, lifecycle_id=lifecycle.id)
+        .order_by(PositionEvaluation.timestamp.desc(), PositionEvaluation.id.desc())
+        .first()
+    )
+    snapshot, market_meta = await _lifecycle_market_context(
+        market, agent_id, [lifecycle.symbol], [],
+    )
+    last_price = snapshot.prices.get(lifecycle.symbol) if snapshot is not None else None
+    invested, fees, _closed_net = _trade_totals(trades)
+    realized = position.realized_usd or Decimal("0")
+    unrealized = (
+        (last_price - position.avg_price) * position.quantity
+        if last_price is not None else None
+    )
+    net = realized + unrealized - fees if unrealized is not None else None
+    last_changed = max(
+        [lifecycle.opened_at, trades[-1].timestamp]
+        + ([evaluation.timestamp] if evaluation is not None else []),
+        key=_utc,
+    )
+    return LifecycleDetailOut(
+        lifecycle_id=lifecycle.id,
+        cycle_id=lifecycle.last_cycle_id,
+        symbol=lifecycle.symbol,
+        opened_at=lifecycle.opened_at,
+        last_changed_at=last_changed,
+        evaluation=(
+            LifecycleEvaluationOut(
+                action=evaluation.action,
+                rationale=evaluation.rationale,
+                cycle_id=evaluation.cycle_id,
+                timestamp=evaluation.timestamp,
+                policy_refs=list(evaluation.policy_refs or []),
+                policy_alignment=evaluation.policy_alignment or "unrelated",
+                override_reason=evaluation.override_reason or "",
+            )
+            if evaluation is not None else None
+        ),
+        economy=LifecycleEconomyOut(
+            quantity=position.quantity,
+            avg_price=position.avg_price,
+            last_price=last_price,
+            exposure_usd=(position.quantity * last_price if last_price is not None else None),
+            invested_usd=invested,
+            realized_usd=realized,
+            unrealized_usd=unrealized,
+            fees_usd=fees,
+            net_result_usd=net,
+            net_result_pct=(net / invested * Decimal("100") if net is not None and invested else None),
+        ),
+        market=market_meta,
+        trades=[
+            LifecycleTradeOut(
+                id=trade.id,
+                cycle_id=trade.cycle_id,
+                side=trade.side,
+                quantity=trade.quantity,
+                price=trade.price,
+                fee=trade.fee,
+                timestamp=trade.timestamp,
+            )
+            for trade in trades
+        ],
+    )
 
 
 @router.get("/agents/{agent_id}/equity", response_model=list[EquityPoint])
