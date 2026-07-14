@@ -14,6 +14,7 @@ from app.market.binance import LifecycleMarketSnapshot
 
 @pytest.fixture(autouse=True)
 def _clear_overrides():
+    routes._lifecycle_market_snapshots.clear()
     app.dependency_overrides[routes.lifecycle_market_dep] = lambda: LifecycleMarketFake(
         LifecycleMarketSnapshot(
             as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
@@ -203,17 +204,29 @@ class LifecycleMarketFake:
         self._last_snapshot = None
         self.fail = False
         self.calls = 0
+        self.requested_symbols = []
+        self.requested_series_symbols = []
 
     @property
     def last_lifecycle_market_snapshot(self):
         return self._last_snapshot
 
-    async def get_lifecycle_market_snapshot(self, symbols):
+    async def get_lifecycle_market_snapshot(self, symbols, series_symbols=None):
         self.calls += 1
+        self.requested_symbols = list(symbols)
+        self.requested_series_symbols = list(series_symbols or symbols)
         if self.fail:
             raise RuntimeError("market unavailable")
-        self._last_snapshot = self._snapshot
-        return self._snapshot
+        snapshot = LifecycleMarketSnapshot(
+            as_of=self._snapshot.as_of,
+            prices={symbol: self._snapshot.prices[symbol] for symbol in symbols},
+            series_24h={
+                symbol: self._snapshot.series_24h[symbol]
+                for symbol in (series_symbols or symbols)
+            },
+        )
+        self._last_snapshot = snapshot
+        return snapshot
 
     async def get_universe_snapshot(self, symbols):
         return [
@@ -313,6 +326,52 @@ def test_lifecycle_market_explicitly_marks_market_unavailable_without_cache(db_s
     assert body["items"][0]["exposure_usd"] is None
     assert body["items"][0]["portfolio_weight_pct"] is None
     assert body["items"][0]["market_series_24h"] is None
+
+
+def test_lifecycle_market_does_not_label_an_incompatible_cached_snapshot_as_stale(db_session):
+    agent = _lifecycle_agent(db_session)
+    execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="btc")
+    execute_sell(db_session, agent, "BTCUSDT", Decimal("1"), Decimal("110"), cycle_id="btc-close")
+    execute_buy(db_session, agent, "ETHUSDT", Decimal("100"), Decimal("100"), cycle_id="eth")
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("110")},
+        series_24h={"BTCUSDT": [Decimal("100"), Decimal("110")]},
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+
+    assert client.get(f"/api/agents/{agent.id}/lifecycles?state=closed").json()["market"]["status"] == "fresh"
+    market.fail = True
+    body = client.get(f"/api/agents/{agent.id}/lifecycles?state=open").json()
+
+    assert body["market"] == {"status": "unavailable", "as_of": None}
+    assert body["items"][0]["symbol"] == "ETHUSDT"
+    assert body["items"][0]["exposure_usd"] is None
+
+
+def test_lifecycle_market_limits_closed_history_series_to_the_returned_page(db_session):
+    agent = _lifecycle_agent(db_session)
+    for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+        execute_buy(db_session, agent, symbol, Decimal("100"), Decimal("100"), cycle_id=f"{symbol}-open")
+        execute_sell(db_session, agent, symbol, Decimal("1"), Decimal("110"), cycle_id=f"{symbol}-close")
+    market = LifecycleMarketFake(LifecycleMarketSnapshot(
+        as_of=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        prices={"BTCUSDT": Decimal("110"), "ETHUSDT": Decimal("110"), "SOLUSDT": Decimal("110")},
+        series_24h={
+            "BTCUSDT": [Decimal("100"), Decimal("110")],
+            "ETHUSDT": [Decimal("100"), Decimal("110")],
+            "SOLUSDT": [Decimal("100"), Decimal("110")],
+        },
+    ))
+    client = _client(db_session)
+    app.dependency_overrides[routes.lifecycle_market_dep] = lambda: market
+
+    body = client.get(f"/api/agents/{agent.id}/lifecycles?state=closed&limit=1").json()
+
+    assert len(body["items"]) == 1
+    assert market.requested_symbols == [body["items"][0]["symbol"]]
+    assert market.requested_series_symbols == [body["items"][0]["symbol"]]
 
 
 def test_lifecycle_market_does_not_fetch_for_an_empty_displayed_collection(db_session):
@@ -778,11 +837,13 @@ class FakeMarketPreview:
     @property
     def last_lifecycle_market_snapshot(self):
         return self._last_lifecycle_market_snapshot
-    async def get_lifecycle_market_snapshot(self, symbols):
+    async def get_lifecycle_market_snapshot(self, symbols, series_symbols=None):
         snapshot = LifecycleMarketSnapshot(
             as_of=datetime.now(timezone.utc),
-            prices={coin.symbol: coin.price for coin in self._snap},
-            series_24h={coin.symbol: [] for coin in self._snap},
+            prices={coin.symbol: coin.price for coin in self._snap if coin.symbol in symbols},
+            series_24h={
+                coin.symbol: [] for coin in self._snap if coin.symbol in (series_symbols or symbols)
+            },
         )
         self._last_lifecycle_market_snapshot = snapshot
         return snapshot

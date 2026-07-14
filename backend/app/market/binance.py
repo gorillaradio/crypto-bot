@@ -87,9 +87,13 @@ class BinanceClient:
         return out
 
     async def get_lifecycle_market_snapshot(
-        self, symbols: list[str]
+        self, symbols: list[str], series_symbols: list[str] | None = None,
     ) -> LifecycleMarketSnapshot:
         distinct_symbols = list(dict.fromkeys(symbols))
+        distinct_series_symbols = (
+            distinct_symbols if series_symbols is None
+            else [symbol for symbol in dict.fromkeys(series_symbols) if symbol in distinct_symbols]
+        )
         data = await self._get("/api/v3/ticker/24hr", {})
         by_symbol = {d["symbol"]: d for d in data}
         prices = {
@@ -98,7 +102,7 @@ class BinanceClient:
         }
         series_24h = {
             symbol: await self.get_klines(symbol, "1h", 24)
-            for symbol in distinct_symbols
+            for symbol in distinct_series_symbols
         }
         snapshot = LifecycleMarketSnapshot(
             as_of=datetime.now(timezone.utc),

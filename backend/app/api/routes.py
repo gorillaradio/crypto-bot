@@ -19,6 +19,7 @@ from app.eval.metrics import total_return_pct, max_drawdown_pct, sharpe, hit_rat
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 _lifecycle_market_client = BinanceClient()
+_lifecycle_market_snapshots: dict[int, LifecycleMarketSnapshot] = {}
 
 
 def _latest_equity(session, agent: Agent) -> Decimal:
@@ -40,15 +41,20 @@ def lifecycle_market_dep() -> BinanceClient:
 
 
 async def _lifecycle_market_context(
-    market: BinanceClient, symbols: list[str], agent_id: int,
+    market: BinanceClient, agent_id: int, price_symbols: list[str], series_symbols: list[str],
 ) -> tuple[LifecycleMarketSnapshot | None, LifecycleMarketOut]:
     try:
-        snapshot = await market.get_lifecycle_market_snapshot(symbols)
+        snapshot = await market.get_lifecycle_market_snapshot(price_symbols, series_symbols)
+        _lifecycle_market_snapshots[agent_id] = market.last_lifecycle_market_snapshot or snapshot
         return snapshot, LifecycleMarketOut(status="fresh", as_of=snapshot.as_of)
     except Exception as exc:
         logger.warning("lifecycle collection: market snapshot failed for agent %s: %s", agent_id, exc)
-        snapshot = market.last_lifecycle_market_snapshot
-        if snapshot is not None:
+        snapshot = _lifecycle_market_snapshots.get(agent_id)
+        if (
+            snapshot is not None
+            and set(price_symbols).issubset(snapshot.prices)
+            and set(series_symbols).issubset(snapshot.series_24h)
+        ):
             return snapshot, LifecycleMarketOut(status="stale", as_of=snapshot.as_of)
         return None, LifecycleMarketOut(status="unavailable")
 
@@ -93,6 +99,33 @@ def _lifecycle_sort_key(state: str, row: LifecycleSummary) -> tuple:
         return (_utc(row.closed_at), row.lifecycle_id, "")
     timestamp = row.last_changed_at if row.status == "open" else row.closed_at
     return (row.status == "open", _utc(timestamp), row.lifecycle_id)
+
+
+def _lifecycle_market_symbol_sets(
+    state: str, lifecycles: list[PositionLifecycle], limit: int, cursor_payload: dict | None,
+) -> tuple[list[str], list[str]]:
+    open_rows = [row for row in lifecycles if row.closed_at is None]
+    closed_rows = [row for row in lifecycles if row.closed_at is not None]
+    if state == "open":
+        symbols = [row.symbol for row in open_rows]
+        return symbols, symbols
+
+    def closed_key(row: PositionLifecycle) -> tuple:
+        if state == "closed":
+            return (_utc(row.closed_at), row.id, "")
+        return (False, _utc(row.closed_at), row.id)
+
+    closed_rows.sort(key=closed_key, reverse=True)
+    if cursor_payload is not None:
+        cursor_key = _lifecycle_cursor_key(state, cursor_payload["key"])
+        closed_rows = [row for row in closed_rows if closed_key(row) < cursor_key]
+    closed_page = closed_rows[:limit]
+    returned_rows = (
+        closed_page if state == "closed" or cursor_payload is not None
+        else open_rows + closed_page
+    )
+    symbols = list(dict.fromkeys(row.symbol for row in returned_rows))
+    return symbols, symbols
 
 
 def _lifecycle_cursor_key(state: str, values: list) -> tuple:
@@ -384,9 +417,12 @@ async def get_lifecycles(
             or (lifecycle.closed_at is not None and _utc(lifecycle.closed_at) < _utc(threshold))
         )
     ]
-    if displayed_lifecycles:
+    price_symbols, series_symbols = _lifecycle_market_symbol_sets(
+        state, displayed_lifecycles, limit, cursor_payload,
+    )
+    if price_symbols:
         market_snapshot, market_meta = await _lifecycle_market_context(
-            market, [row.symbol for row in displayed_lifecycles], agent_id,
+            market, agent_id, price_symbols, series_symbols,
         )
     else:
         market_snapshot = None

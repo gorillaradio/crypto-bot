@@ -99,6 +99,29 @@ async def test_lifecycle_market_snapshot_fetches_quotes_and_hourly_closes(respx_
     assert len(respx_mock.calls) == 3
 
 
+@respx.mock
+async def test_lifecycle_market_snapshot_limits_hourly_closes_to_requested_symbols(respx_mock):
+    respx_mock.get(f"{BASE}/api/v3/ticker/24hr").mock(return_value=httpx.Response(200, json=[
+        {"symbol": "BTCUSDT", "lastPrice": "110"},
+        {"symbol": "ETHUSDT", "lastPrice": "90"},
+        {"symbol": "SOLUSDT", "lastPrice": "20"},
+    ]))
+    respx_mock.get(
+        f"{BASE}/api/v3/klines",
+        params={"symbol": "ETHUSDT", "interval": "1h", "limit": "24"},
+    ).mock(return_value=httpx.Response(200, json=[[0, "", "", "", "90"]]))
+
+    snapshot = await BinanceClient().get_lifecycle_market_snapshot(
+        ["BTCUSDT", "ETHUSDT", "SOLUSDT"], series_symbols=["ETHUSDT"],
+    )
+
+    assert snapshot.prices == {
+        "BTCUSDT": Decimal("110"), "ETHUSDT": Decimal("90"), "SOLUSDT": Decimal("20"),
+    }
+    assert snapshot.series_24h == {"ETHUSDT": [Decimal("90")]}
+    assert len(respx_mock.calls) == 2
+
+
 async def test_lifecycle_market_snapshot_keeps_last_known_value_after_provider_failure(
     respx_mock,
 ):
