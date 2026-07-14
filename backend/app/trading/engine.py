@@ -37,7 +37,9 @@ def _persist_trade_atomically(session, trade: Trade, event: Event) -> None:
 
 
 def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: Decimal,
-                cycle_id: str | None = None, rationale: str | None = None) -> Trade:
+                cycle_id: str | None = None, rationale: str | None = None,
+                policy_refs: list[str] | None = None, policy_alignment: str = "unrelated",
+                override_reason: str = "") -> Trade:
     cycle_id = cycle_id or uuid4().hex
     notional = usd_amount
     fee = notional * settings.fee_rate
@@ -82,7 +84,9 @@ def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: De
     session.add(trade)
     session.add(PositionEvaluation(
         agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id=cycle_id,
-        action="BUY", rationale=rationale, timestamp=now,
+        action="BUY", rationale=rationale, policy_refs=list(policy_refs or []),
+        policy_alignment=policy_alignment or "unrelated", override_reason=override_reason or "",
+        timestamp=now,
     ))
     payload = {"side": "BUY", "symbol": symbol, "qty": str(quantity), "price": str(ask),
                "fee": str(fee), "usd_value": str(notional), "rationale": rationale,
@@ -96,7 +100,9 @@ def execute_buy(session, agent: Agent, symbol: str, usd_amount: Decimal, ask: De
 
 
 def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Decimal,
-                 cycle_id: str | None = None, rationale: str | None = None) -> Trade:
+                 cycle_id: str | None = None, rationale: str | None = None,
+                 policy_refs: list[str] | None = None, policy_alignment: str = "unrelated",
+                 override_reason: str = "") -> Trade:
     cycle_id = cycle_id or uuid4().hex
     pos = _get_position(session, agent.id, symbol)
     if pos is None or quantity > pos.quantity:
@@ -150,7 +156,9 @@ def execute_sell(session, agent: Agent, symbol: str, quantity: Decimal, bid: Dec
     session.add(trade)
     session.add(PositionEvaluation(
         agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id=cycle_id,
-        action="SELL", rationale=rationale, timestamp=now,
+        action="SELL", rationale=rationale, policy_refs=list(policy_refs or []),
+        policy_alignment=policy_alignment or "unrelated", override_reason=override_reason or "",
+        timestamp=now,
     ))
     payload["lifecycle_id"] = lifecycle.id
     event = Event(agent_id=agent.id, kind="trade", cycle_id=cycle_id, payload=payload,

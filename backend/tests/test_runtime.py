@@ -1,8 +1,9 @@
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from app.db.models import (Agent, Event, Position, EquitySnapshot, Trade, MemoryEntry,
-                           DecisionRecord, BenchmarkBasis, BenchmarkSnapshot)
+from app.db.models import (Agent, Event, Position, PositionEvaluation, PositionLifecycle,
+                           EquitySnapshot, Trade, MemoryEntry, DecisionRecord, BenchmarkBasis,
+                           BenchmarkSnapshot)
 from app.agents import runtime
 from app.agents.runtime import run_heartbeat, run_decision, run_decision_guarded, universe_size
 from app.brain.context import CoinSnapshot
@@ -218,6 +219,70 @@ async def test_policy_violation_disclosure_does_not_block_valid_buy(db_session):
     assert '"policy_refs":["P999"]' in rec.parsed_output
     assert '"policy_alignment":"violates"' in rec.parsed_output
     assert '"override_reason":"fresh catalyst"' in rec.parsed_output
+
+
+async def test_run_decision_persists_full_context_for_buy_and_sell(db_session):
+    agent = _llm_agent(db_session)
+    market = FakeMarketLLM(
+        [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))],
+        Decimal("100"), (Decimal("100"), Decimal("101")),
+    )
+    decision = Decision(actions=[
+        Action(type="BUY", symbol="BTCUSDT", usd_amount=Decimal("50"), rationale="open",
+               policy_refs=["P001"], policy_alignment="follows"),
+        Action(type="SELL", symbol="BTCUSDT", fraction=Decimal("0.5"), rationale="trim",
+               policy_refs=["P002"], policy_alignment="violates", override_reason="risk cap"),
+    ])
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+
+    evaluations = (db_session.query(PositionEvaluation)
+                   .order_by(PositionEvaluation.id).all())
+    assert [(row.action, row.policy_refs, row.policy_alignment, row.override_reason)
+            for row in evaluations] == [
+        ("BUY", ["P001"], "follows", ""),
+        ("SELL", ["P002"], "violates", "risk cap"),
+    ]
+
+
+async def test_run_decision_records_hold_for_open_lifecycle_without_trade(db_session):
+    agent = _llm_agent(db_session)
+    opening = runtime.execute_buy(
+        db_session, agent, "BTCUSDT", Decimal("50"), Decimal("100"), cycle_id="open",
+    )
+    trade_count = db_session.query(Trade).count()
+    decision = Decision(actions=[Action(
+        type="HOLD", symbol="BTCUSDT", rationale="thesis intact",
+        policy_refs=["P003"], policy_alignment="follows",
+    )])
+    market = FakeMarketLLM(
+        [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))],
+        Decimal("100"), (Decimal("99"), Decimal("101")),
+    )
+    await run_decision(db_session, agent, market, ["BTCUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+
+    hold = db_session.query(PositionEvaluation).filter_by(action="HOLD").one()
+    lifecycle = db_session.get(PositionLifecycle, opening.lifecycle_id)
+    assert hold.lifecycle_id == opening.lifecycle_id
+    assert hold.rationale == "thesis intact"
+    assert db_session.query(Trade).count() == trade_count
+    assert lifecycle.last_cycle_id == hold.cycle_id
+
+
+async def test_run_decision_does_not_create_lifecycle_for_hold_without_position(db_session):
+    agent = _llm_agent(db_session)
+    decision = Decision(actions=[Action(type="HOLD", symbol="ETHUSDT", rationale="watch")])
+    market = FakeMarketLLM([], Decimal("100"), (Decimal("99"), Decimal("101")))
+    await run_decision(db_session, agent, market, ["ETHUSDT"],
+                       brain_decide=lambda ctx, adapter: DecisionResult(decision))
+
+    assert db_session.query(PositionEvaluation).count() == 0
+    assert db_session.query(PositionLifecycle).count() == 0
+    event = db_session.query(Event).filter_by(kind="decision").one()
+    assert event.payload["skipped"] == [
+        {"type": "HOLD", "symbol": "ETHUSDT", "reason": "posizione inesistente"}
+    ]
 
 
 async def test_llm_all_in_buy_clamps_for_fee_and_executes(db_session):

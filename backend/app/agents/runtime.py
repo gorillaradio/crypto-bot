@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 from uuid import uuid4
 from app.core.config import settings
-from app.db.models import EquitySnapshot, Event, DecisionRecord, BenchmarkBasis, BenchmarkSnapshot
+from app.db.models import (EquitySnapshot, Event, DecisionRecord, BenchmarkBasis,
+                           BenchmarkSnapshot, PositionEvaluation, PositionLifecycle)
 from app.trading.engine import execute_buy, execute_sell
 from app.agents.strategy import breached
 from app.brain import evaluate_trader
@@ -233,6 +234,11 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
     closed_trades: list[ClosedTrade] = []
     for action in decision.actions:
         try:
+            policy = dict(
+                policy_refs=action.policy_refs,
+                policy_alignment=action.policy_alignment,
+                override_reason=action.override_reason,
+            )
             if action.type == "BUY" and action.symbol in universe_symbols:
                 amount = action.usd_amount or settings.decision_buy_default_usd
                 # The fee is charged on top of the notional, so the most the agent
@@ -249,7 +255,7 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                     continue
                 _bid, ask = await market.get_book_ticker(action.symbol)
                 execute_buy(session, agent, action.symbol, amount, ask,
-                            cycle_id=cycle_id, rationale=action.rationale)
+                            cycle_id=cycle_id, rationale=action.rationale, **policy)
                 session.refresh(agent)
                 held = {p.symbol: p for p in agent.positions}; actions += 1
             elif action.type == "SELL" and action.symbol in held:
@@ -262,11 +268,28 @@ async def _run_decision_llm(session, agent, market, symbols, brain_decide, refle
                 avg_cost = held[action.symbol].avg_price
                 bid, _ask = await market.get_book_ticker(action.symbol)
                 execute_sell(session, agent, action.symbol, qty, bid,
-                             cycle_id=cycle_id, rationale=action.rationale)
+                             cycle_id=cycle_id, rationale=action.rationale, **policy)
                 realized = ((bid - avg_cost) / avg_cost * Decimal("100")) if avg_cost else Decimal("0")
                 closed_trades.append(ClosedTrade(symbol=action.symbol, qty=qty, sell_price=bid,
                                                  avg_cost=avg_cost, realized_pnl_pct=realized))
                 held = {p.symbol: p for p in agent.positions}; actions += 1
+            elif action.type == "HOLD" and action.symbol in held:
+                position = held[action.symbol]
+                lifecycle = (session.get(PositionLifecycle, position.lifecycle_id)
+                             if position.lifecycle_id else None)
+                if lifecycle is None:
+                    skipped.append({"type": "HOLD", "symbol": action.symbol,
+                                    "reason": "posizione senza lifecycle"})
+                    continue
+                lifecycle.last_cycle_id = cycle_id
+                session.add(PositionEvaluation(
+                    agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id=cycle_id,
+                    action="HOLD", rationale=action.rationale,
+                    policy_refs=list(action.policy_refs),
+                    policy_alignment=action.policy_alignment,
+                    override_reason=action.override_reason,
+                ))
+                actions += 1
             else:
                 skipped.append({"type": action.type, "symbol": action.symbol,
                                 "reason": ("coin fuori universo" if action.type == "BUY"

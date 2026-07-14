@@ -25,6 +25,35 @@ def test_buy_spends_cash_with_fee_and_creates_position(db_session):
     pos = db_session.query(Position).filter_by(agent_id=agent.id, symbol="BTCUSDT").one()
     assert pos.quantity == Decimal("0.5")
     assert pos.avg_price == Decimal("100")
+    evaluation = db_session.query(PositionEvaluation).one()
+    assert (evaluation.policy_refs, evaluation.policy_alignment, evaluation.override_reason) == (
+        [], "unrelated", "",
+    )
+
+
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+def test_trade_evaluation_persists_full_policy_context(db_session, side):
+    agent = _agent(db_session, "300")
+    if side == "SELL":
+        execute_buy(db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"), cycle_id="open")
+        trade = execute_sell(
+            db_session, agent, "BTCUSDT", Decimal("0.5"), Decimal("120"),
+            cycle_id="decision", rationale="trim risk", policy_refs=["P002"],
+            policy_alignment="violates", override_reason="volatility spike",
+        )
+    else:
+        trade = execute_buy(
+            db_session, agent, "BTCUSDT", Decimal("100"), Decimal("100"),
+            cycle_id="decision", rationale="breakout", policy_refs=["P001"],
+            policy_alignment="follows", override_reason="",
+        )
+
+    evaluation = (db_session.query(PositionEvaluation)
+                  .filter_by(lifecycle_id=trade.lifecycle_id, cycle_id="decision").one())
+    assert evaluation.rationale in {"breakout", "trim risk"}
+    assert evaluation.policy_refs == (["P001"] if side == "BUY" else ["P002"])
+    assert evaluation.policy_alignment == ("follows" if side == "BUY" else "violates")
+    assert evaluation.override_reason == ("" if side == "BUY" else "volatility spike")
 
 
 def test_buy_raises_if_insufficient_cash(db_session):
