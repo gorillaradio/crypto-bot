@@ -34,17 +34,13 @@ def market_dep() -> BinanceClient:
     return BinanceClient()
 
 
-def _encode_lifecycle_cursor(
-    agent_id: int, state: str, closed_since: datetime, key: tuple,
-    remaining_ids: list[str] | None = None,
-) -> str:
+def _encode_lifecycle_cursor(agent_id: int, state: str, closed_since: datetime, key: tuple) -> str:
     payload = json.dumps({
         "v": 1,
         "agent_id": agent_id,
         "state": state,
         "closed_since": _utc(closed_since).isoformat(),
         "key": list(key),
-        "remaining_ids": remaining_ids,
     }, separators=(",", ":"), default=str).encode()
     return base64.urlsafe_b64encode(payload).decode().rstrip("=")
 
@@ -63,14 +59,6 @@ def _decode_lifecycle_cursor(cursor: str | None) -> dict | None:
             or not isinstance(payload.get("closed_since"), str)
             or not isinstance(payload.get("key"), list)
             or len(payload["key"]) != 3
-            or (
-                payload.get("remaining_ids") is not None
-                and (
-                    not isinstance(payload["remaining_ids"], list)
-                    or any(not isinstance(value, str) for value in payload["remaining_ids"])
-                    or len(payload["remaining_ids"]) != len(set(payload["remaining_ids"]))
-                )
-            )
         ):
             raise ValueError
         datetime.fromisoformat(payload["closed_since"])
@@ -352,12 +340,10 @@ async def get_lifecycles(
         cursor_payload["agent_id"] != agent_id or cursor_payload["state"] != state
     ):
         raise HTTPException(422, "cursor does not match lifecycle filters")
+    if cursor_payload is not None and state == "open":
+        raise HTTPException(422, "open lifecycle collection is not paginated")
     if cursor_payload is not None:
         _lifecycle_cursor_key(state, cursor_payload["key"])
-    if cursor_payload is not None and state in ("open", "all") and not isinstance(
-        cursor_payload["remaining_ids"], list
-    ):
-        raise HTTPException(422, "invalid cursor")
     cursor_threshold = (
         _utc(datetime.fromisoformat(cursor_payload["closed_since"]))
         if cursor_payload is not None else None
@@ -442,18 +428,30 @@ async def get_lifecycles(
     if cursor_payload is not None and state == "closed":
         cursor_key = _lifecycle_cursor_key(state, cursor_payload["key"])
         items = [row for row in items if _lifecycle_sort_key(state, row) < cursor_key]
-    if cursor_payload is not None and state in ("open", "all"):
-        by_id = {row.lifecycle_id: row for row in items}
-        items = [by_id[lifecycle_id] for lifecycle_id in cursor_payload["remaining_ids"]
-                 if lifecycle_id in by_id]
-    page = items[:limit]
-    remaining_ids = [row.lifecycle_id for row in items[limit:]] if state in ("open", "all") else None
-    next_cursor = (
-        _encode_lifecycle_cursor(
-            agent_id, state, threshold, _lifecycle_sort_key(state, page[-1]), remaining_ids,
+    if state == "open":
+        page = items
+        next_cursor = None
+    elif state == "closed":
+        page = items[:limit]
+        next_cursor = (
+            _encode_lifecycle_cursor(agent_id, state, threshold, _lifecycle_sort_key(state, page[-1]))
+            if len(items) > limit else None
         )
-        if len(items) > limit else None
-    )
+    else:
+        open_items = [row for row in items if row.status == "open"]
+        closed_items = [row for row in items if row.status == "closed"]
+        if cursor_payload is not None:
+            cursor_key = _lifecycle_cursor_key(state, cursor_payload["key"])
+            closed_items = [
+                row for row in closed_items if _lifecycle_sort_key(state, row) < cursor_key
+            ]
+            page = closed_items[:limit]
+        else:
+            page = open_items + closed_items[:limit]
+        next_cursor = (
+            _encode_lifecycle_cursor(agent_id, state, threshold, _lifecycle_sort_key(state, page[-1]))
+            if len(closed_items) > limit else None
+        )
     return LifecycleCollectionOut(items=page, next_cursor=next_cursor)
 
 
