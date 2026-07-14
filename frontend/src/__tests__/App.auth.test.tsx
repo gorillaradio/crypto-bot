@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
 
@@ -13,6 +13,7 @@ vi.mock("../api", () => ({
   getEvents: vi.fn(() => Promise.resolve([])),
   getTrades: vi.fn(() => Promise.resolve([])),
   getLifecycles: vi.fn(() => Promise.resolve({ items: [], next_cursor: null })),
+  getLifecycleDetail: vi.fn(),
   getClosedPositions: vi.fn(() => Promise.resolve([])),
   getDecisions: vi.fn(() => Promise.resolve([])),
   getObservations: vi.fn(() => Promise.resolve([])),
@@ -23,10 +24,38 @@ vi.mock("../api", () => ({
   logout: vi.fn(() => Promise.resolve()),
   exchangeViewerToken: vi.fn(),
 }));
-import { AuthError, getMe, getAgents, getLifecycles, exchangeViewerToken } from "../api";
+import { AuthError, getMe, getAgents, getLifecycles, getLifecycleDetail, exchangeViewerToken } from "../api";
 
 const freshMarket = { status: "fresh", as_of: "2026-07-09T10:20:00Z" };
 const lifecyclePage = (items: unknown[], next_cursor: string | null, market = freshMarket) => ({ items, next_cursor, market });
+const lifecycle = (over: Record<string, unknown> = {}) => ({
+  lifecycle_id: "life-1", symbol: "BTCUSDT", status: "open",
+  opened_at: "2026-07-14T09:00:00Z", closed_at: null,
+  last_changed_at: "2026-07-14T10:00:00Z", quantity: "1",
+  exposure_usd: "100", portfolio_weight_pct: "50", held_minutes: null,
+  invested_usd: "100", fees_usd: "0.1", net_result_usd: "5",
+  net_result_pct: "5", market_series_24h: ["100", "101"],
+  ...over,
+});
+const btc = lifecycle();
+const eth = lifecycle({ lifecycle_id: "life-2", symbol: "ETHUSDT", exposure_usd: "50" });
+const btcUpdated = lifecycle({ exposure_usd: "110" });
+const ethUpdated = lifecycle({ lifecycle_id: "life-2", symbol: "ETHUSDT", exposure_usd: "200" });
+const detailBody = {
+  lifecycle_id: "life-1", cycle_id: "hold", symbol: "BTCUSDT", status: "open",
+  opened_at: "2026-07-14T09:00:00Z", last_changed_at: "2026-07-14T10:00:00Z",
+  evaluation: null,
+  economy: {
+    quantity: "1", avg_price: "100", last_price: "110", exposure_usd: "110",
+    invested_usd: "100", realized_usd: "0", unrealized_usd: "10",
+    fees_usd: "0.1", net_result_usd: "9.9", net_result_pct: "9.9",
+  },
+  market: freshMarket,
+  trades: [{
+    id: 1, cycle_id: "open", side: "BUY", quantity: "1", price: "100",
+    fee: "0.1", timestamp: "2026-07-14T09:00:00Z",
+  }],
+};
 
 beforeEach(() => {
   vi.mocked(getAgents).mockResolvedValue([] as never);
@@ -35,6 +64,7 @@ beforeEach(() => {
   window.location.hash = "";
   vi.mocked(getLifecycles).mockReset();
   vi.mocked(getLifecycles).mockResolvedValue(lifecyclePage([], null) as never);
+  vi.mocked(getLifecycleDetail).mockReset();
 });
 
 const agent = {
@@ -109,6 +139,54 @@ describe("App lifecycle navigation", () => {
     const row = container.querySelector("tbody tr");
     expect(row?.className).not.toMatch(/(?:transition-(?:all|transform)|animate-)/);
     expect(row?.getAttribute("style")).toBeNull();
+  });
+
+  it("keeps selected row order through a poll and restores live order after close", async () => {
+    vi.mocked(getLifecycles)
+      .mockResolvedValueOnce(lifecyclePage([btc, eth], null) as never)
+      .mockResolvedValueOnce(lifecyclePage([ethUpdated, btcUpdated], null) as never);
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getLifecycleDetail).mockResolvedValue(detailBody as never);
+      render(<App />);
+      await act(async () => { await Promise.resolve(); });
+      fireEvent.click(screen.getByRole("button", { name: "Apri dettagli BTC" }));
+      await act(async () => { vi.advanceTimersByTime(15_000); await Promise.resolve(); });
+      expect(screen.getAllByRole("button", { name: /Apri dettagli/ })
+        .map(button => button.textContent)).toEqual(["BTC", "ETH"]);
+      fireEvent.click(screen.getByRole("button", { name: "Chiudi" }));
+      expect(screen.getAllByRole("button", { name: /Apri dettagli/ })
+        .map(button => button.textContent)).toEqual(["ETH", "BTC"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes detail when view or agent changes", async () => {
+    const beta = { ...agent, id: 2, name: "Beta" };
+    vi.mocked(getAgents).mockResolvedValue([agent, beta] as never);
+    vi.mocked(getLifecycles).mockResolvedValue(lifecyclePage([btc], null) as never);
+    vi.mocked(getLifecycleDetail).mockResolvedValue(detailBody as never);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Apri dettagli BTC" }));
+    expect(await screen.findByRole("heading", { name: /Dettaglio BTC/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Chiuse" }));
+    expect(screen.queryByRole("heading", { name: /Dettaglio BTC/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Aperte" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apri dettagli BTC" }));
+    expect(await screen.findByRole("heading", { name: /Dettaglio BTC/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Beta"));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /Dettaglio BTC/ })).not.toBeInTheDocument());
+  });
+
+  it("returns to login when detail authorization is lost", async () => {
+    vi.mocked(getLifecycles).mockResolvedValue(lifecyclePage([btc], null) as never);
+    vi.mocked(getLifecycleDetail).mockRejectedValueOnce(new AuthError());
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Apri dettagli BTC" }));
+    expect(await screen.findByLabelText(/password/i)).toBeInTheDocument();
   });
 
   it("cambia a Chiuse e Tutte con una finestra temporale osservabile", async () => {

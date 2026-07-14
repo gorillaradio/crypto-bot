@@ -339,7 +339,16 @@ function Dashboard({ role, onAuthLost }: { role: "admin" | "viewer"; onAuthLost:
                       </div>
                     )}
                   </div>
-                  <PositionsTable items={positions} market={positionMarket} state={positionState} />
+                  {selId !== null && (
+                    <PositionsTable
+                      key={`${selId}:${positionState}`}
+                      agentId={selId}
+                      items={positions}
+                      market={positionMarket}
+                      state={positionState}
+                      onAuthLost={onAuthLost}
+                    />
+                  )}
                   {positionCursor && <Button variant="outline" size="sm" className="mt-3" disabled={positionsLoadingMore} onClick={loadMorePositions}>{positionsLoadingMore ? "Caricamento…" : "Carica altro"}</Button>}
                 </CardContent>
               </Card>
