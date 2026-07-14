@@ -307,6 +307,46 @@ async def test_run_decision_preserves_hold_when_later_trade_rolls_back(db_sessio
     assert decision_event.payload["errors"] == 1
 
 
+async def test_run_decision_recovers_when_hold_persistence_fails(db_session):
+    from sqlalchemy import event
+
+    agent = _llm_agent(db_session)
+    lifecycle = PositionLifecycle(
+        id="hold-life", agent_id=agent.id, symbol="BTCUSDT",
+        opening_cycle_id="open", last_cycle_id="open",
+    )
+    db_session.add(lifecycle)
+    db_session.add(Position(
+        agent_id=agent.id, symbol="BTCUSDT", quantity=Decimal("1"),
+        avg_price=Decimal("100"), lifecycle_id=lifecycle.id,
+    ))
+    db_session.commit()
+    decision = Decision(actions=[Action(
+        type="HOLD", symbol="BTCUSDT", rationale="stay put",
+    )])
+    market = FakeMarketLLM(
+        [CoinSnapshot("BTCUSDT", Decimal("100"), Decimal("1"))],
+        Decimal("100"), (Decimal("99"), Decimal("101")),
+    )
+
+    def fail_hold_evaluation(_mapper, _connection, target):
+        if target.action == "HOLD":
+            raise RuntimeError("hold evaluation unavailable")
+
+    event.listen(PositionEvaluation, "before_insert", fail_hold_evaluation)
+    try:
+        await run_decision(db_session, agent, market, ["BTCUSDT"],
+                           brain_decide=lambda ctx, adapter: DecisionResult(decision))
+    finally:
+        event.remove(PositionEvaluation, "before_insert", fail_hold_evaluation)
+
+    assert db_session.query(PositionEvaluation).filter_by(action="HOLD").count() == 0
+    assert db_session.query(Trade).count() == 0
+    decision_event = db_session.query(Event).filter_by(kind="decision").one()
+    assert decision_event.payload["executed"] == 0
+    assert decision_event.payload["errors"] == 1
+
+
 async def test_run_decision_does_not_create_lifecycle_for_hold_without_position(db_session):
     agent = _llm_agent(db_session)
     decision = Decision(actions=[Action(type="HOLD", symbol="ETHUSDT", rationale="watch")])
