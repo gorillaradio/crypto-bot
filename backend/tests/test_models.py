@@ -290,6 +290,30 @@ def test_lifecycle_trade_and_evaluation_persist_canonical_identity(db_session):
     assert lifecycle.closed_at is None
 
 
+def test_position_evaluation_persists_policy_context(db_session):
+    from app.db.models import PositionEvaluation, PositionLifecycle
+
+    agent = _mk_agent(db_session)
+    lifecycle = PositionLifecycle(
+        id="life-policy", agent_id=agent.id, symbol="BTCUSDT",
+        opening_cycle_id="cycle-policy",
+    )
+    db_session.add(lifecycle)
+    db_session.flush()
+    db_session.add(PositionEvaluation(
+        agent_id=agent.id, lifecycle_id=lifecycle.id, cycle_id="cycle-policy",
+        action="HOLD", rationale="wait for confirmation",
+        policy_refs=["P001", "P004"], policy_alignment="follows",
+        override_reason="",
+    ))
+    db_session.commit()
+
+    saved = db_session.query(PositionEvaluation).one()
+    assert saved.policy_refs == ["P001", "P004"]
+    assert saved.policy_alignment == "follows"
+    assert saved.override_reason == ""
+
+
 def test_position_can_reference_current_lifecycle(db_session):
     from app.db.models import PositionLifecycle
 

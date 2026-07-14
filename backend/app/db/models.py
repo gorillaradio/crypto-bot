@@ -93,6 +93,9 @@ class PositionEvaluation(Base):
     cycle_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     action: Mapped[str] = mapped_column(String(8))
     rationale: Mapped[str | None] = mapped_column(String, nullable=True)
+    policy_refs: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    policy_alignment: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    override_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
 
